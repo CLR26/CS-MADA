@@ -12,7 +12,8 @@ export default function App() {
   const [tab, setTab] = useState('suivi')
   const [demandes, setDemandes] = useState([])
   const [showNewModal, setShowNewModal] = useState(false)
-  const [selected, setSelected] = useState(null)
+  const [selectedId, setSelectedId] = useState(null)
+  const selected = useMemo(() => demandes.find(d => d.id === selectedId) || null, [demandes, selectedId])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
@@ -31,7 +32,15 @@ export default function App() {
 
     const channel = supabase
       .channel('demandes-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'demandes' }, load)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'demandes' }, ({ new: row }) => {
+        setDemandes(prev => (prev.some(d => d.id === row.id) ? prev : [row, ...prev]))
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'demandes' }, ({ new: row }) => {
+        setDemandes(prev => prev.map(d => (d.id === row.id ? row : d)))
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'demandes' }, ({ old: row }) => {
+        setDemandes(prev => prev.filter(d => d.id !== row.id))
+      })
       .subscribe()
 
     return () => supabase.removeChannel(channel)
@@ -43,13 +52,14 @@ export default function App() {
   }, [demandes])
 
   async function handleCreate(payload) {
-    const { error } = await supabase.from('demandes').insert({
+    const { data, error } = await supabase.from('demandes').insert({
       ...payload,
       situation: payload.objet,
       created_by: session.user.id,
       created_by_name: session.user.user_metadata?.name || session.user.email,
-    })
+    }).select().single()
     if (error) throw error
+    setDemandes(prev => (prev.some(d => d.id === data.id) ? prev : [data, ...prev]))
   }
 
   async function handleUpdate(id, changes) {
@@ -58,14 +68,23 @@ export default function App() {
     setDemandes(prev => prev.map(d => (d.id === id ? data : d)))
   }
 
-  async function handleResolve(id) {
-    const { data, error } = await supabase.from('demandes').update({ resolved_at: new Date().toISOString() }).eq('id', id).select().single()
-    if (!error) setDemandes(prev => prev.map(d => (d.id === id ? data : d)))
+  async function handleResolve(id, pendingChanges) {
+    const { data, error } = await supabase.from('demandes')
+      .update({ ...(pendingChanges || {}), resolved_at: new Date().toISOString() })
+      .eq('id', id).select().single()
+    if (error) throw error
+    setDemandes(prev => prev.map(d => (d.id === id ? data : d)))
   }
 
   async function handleReopen(id) {
     const { data, error } = await supabase.from('demandes').update({ resolved_at: null }).eq('id', id).select().single()
     if (!error) setDemandes(prev => prev.map(d => (d.id === id ? data : d)))
+  }
+
+  async function handleDelete(id) {
+    const { error } = await supabase.from('demandes').delete().eq('id', id)
+    if (error) throw error
+    setDemandes(prev => prev.filter(d => d.id !== id))
   }
 
   if (session === undefined) return <div className="loading-screen">Chargement…</div>
@@ -82,7 +101,7 @@ export default function App() {
         onNewRequest={() => setShowNewModal(true)}
       />
 
-      {tab === 'suivi' && <RequestList demandes={demandes} onOpen={setSelected} />}
+      {tab === 'suivi' && <RequestList demandes={demandes} onOpen={setSelectedId} />}
       {tab === 'dashboard' && <Dashboard demandes={demandes} />}
 
       {showNewModal && (
@@ -100,7 +119,8 @@ export default function App() {
           onUpdate={handleUpdate}
           onResolve={handleResolve}
           onReopen={handleReopen}
-          onClose={() => setSelected(null)}
+          onDelete={handleDelete}
+          onClose={() => setSelectedId(null)}
         />
       )}
     </div>
