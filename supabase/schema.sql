@@ -55,6 +55,11 @@ on demandes for update
 to authenticated
 using (true);
 
+create policy "Agents authentifiés suppriment"
+on demandes for delete
+to authenticated
+using (true);
+
 -- Index utile pour la recherche par client au rappel
 create index idx_demandes_client_ref on demandes using gin (to_tsvector('french', client_ref));
 
