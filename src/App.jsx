@@ -53,16 +53,19 @@ export default function App() {
   }
 
   async function handleUpdate(id, changes) {
-    const { error } = await supabase.from('demandes').update(changes).eq('id', id)
+    const { data, error } = await supabase.from('demandes').update(changes).eq('id', id).select().single()
     if (error) throw error
+    setDemandes(prev => prev.map(d => (d.id === id ? data : d)))
   }
 
   async function handleResolve(id) {
-    await supabase.from('demandes').update({ resolved_at: new Date().toISOString() }).eq('id', id)
+    const { data, error } = await supabase.from('demandes').update({ resolved_at: new Date().toISOString() }).eq('id', id).select().single()
+    if (!error) setDemandes(prev => prev.map(d => (d.id === id ? data : d)))
   }
 
   async function handleReopen(id) {
-    await supabase.from('demandes').update({ resolved_at: null }).eq('id', id)
+    const { data, error } = await supabase.from('demandes').update({ resolved_at: null }).eq('id', id).select().single()
+    if (!error) setDemandes(prev => prev.map(d => (d.id === id ? data : d)))
   }
 
   if (session === undefined) return <div className="loading-screen">Chargement…</div>
