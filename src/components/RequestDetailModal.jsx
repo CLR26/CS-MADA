@@ -2,7 +2,7 @@ import { useState } from 'react'
 import StatePill from './StatePill'
 import { formatDateTime, formatDuration } from '../lib/time'
 
-export default function RequestDetailModal({ demande, knownDepartments, onUpdate, onResolve, onReopen, onClose }) {
+export default function RequestDetailModal({ demande, knownDepartments, onUpdate, onResolve, onReopen, onDelete, onClose }) {
   const [situation, setSituation] = useState(demande.situation)
   const [waitingOn, setWaitingOn] = useState(demande.waiting_on)
   const [departement, setDepartement] = useState(demande.departement || '')
@@ -34,15 +34,45 @@ export default function RequestDetailModal({ demande, knownDepartments, onUpdate
   }
 
   async function handleResolve() {
+    if (dirty && !situation.trim()) { setError('La situation ne peut pas être vide.'); return }
+    if (waitingOn === 'departement' && !departement.trim()) { setError('Précisez le département.'); return }
     setSaving(true)
-    await onResolve(demande.id)
-    onClose()
+    setError(null)
+    try {
+      await onResolve(
+        demande.id,
+        dirty
+          ? {
+              situation: situation.trim(),
+              waiting_on: waitingOn,
+              departement: waitingOn === 'departement' ? departement.trim() : null,
+            }
+          : undefined
+      )
+      onClose()
+    } catch {
+      setError('Erreur de mise à jour. Réessayez.')
+      setSaving(false)
+    }
   }
 
   async function handleReopen() {
     setSaving(true)
     await onReopen(demande.id)
     onClose()
+  }
+
+  async function handleDelete() {
+    if (!window.confirm('Supprimer définitivement cette demande ?')) return
+    setSaving(true)
+    setError(null)
+    try {
+      await onDelete(demande.id)
+      onClose()
+    } catch {
+      setError('Erreur de suppression. Réessayez.')
+      setSaving(false)
+    }
   }
 
   return (
@@ -123,6 +153,9 @@ export default function RequestDetailModal({ demande, knownDepartments, onUpdate
         </div>
 
         <div className="modal-actions">
+          <button className="btn danger small btn-delete" onClick={handleDelete} disabled={saving}>
+            Supprimer
+          </button>
           {isResolved ? (
             <button className="btn secondary" onClick={handleReopen} disabled={saving}>
               Rouvrir le dossier

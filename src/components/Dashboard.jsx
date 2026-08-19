@@ -41,7 +41,7 @@ export default function Dashboard({ demandes }) {
       </div>
 
       <div className="breakdown">
-        <BreakdownList title="Charge par agent" data={stats.byAgent} />
+        <BreakdownList title="Charge par créateur" data={stats.byAgent} />
         <BreakdownList title="Charge par département" data={stats.byDept} />
       </div>
     </div>

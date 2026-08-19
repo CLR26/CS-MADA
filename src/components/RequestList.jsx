@@ -53,11 +53,20 @@ export default function RequestList({ demandes, onOpen }) {
       {visible.length === 0 ? (
         <div className="empty-state">Aucune demande à afficher.</div>
       ) : (
-        <div className="list">
-          {visible.map(d => (
-            <Row key={d.id} d={d} onOpen={onOpen} />
-          ))}
-        </div>
+        <>
+          <div className="list-header">
+            <span />
+            <span>Client / Objet</span>
+            <span>Situation</span>
+            <span>État</span>
+            <span>Mise à jour</span>
+          </div>
+          <div className="list">
+            {visible.map(d => (
+              <Row key={d.id} d={d} onOpen={onOpen} />
+            ))}
+          </div>
+        </>
       )}
     </div>
   )
@@ -67,23 +76,25 @@ function Row({ d, onOpen }) {
   const stateClass = d.resolved_at ? 'done' : d.waiting_on
   const stale = !d.resolved_at && isStale(d.last_update_at)
 
+  const situationDiffersFromObjet = d.situation && d.situation.trim() !== d.objet.trim()
+
   return (
-    <div className="request-row" onClick={() => onOpen(d)}>
+    <div className="request-row" onClick={() => onOpen(d.id)}>
       <div className={`stripe ${stateClass}`} />
       <div className="r-main">
         <div className="r-client">{d.client_ref}</div>
         <div className="r-objet">{d.objet}</div>
       </div>
       <div className="r-situation">
-        {d.situation}
+        {situationDiffersFromObjet ? d.situation : <span className="r-new">Nouvelle demande</span>}
         {d.waiting_on === 'departement' && d.departement && (
           <span className="r-dept-tag"> · {d.departement}</span>
         )}
       </div>
-      <div className={`r-meta ${stale ? 'stale' : ''}`}>
+      <div className={`r-meta r-state ${stale ? 'stale' : ''}`}>
         {d.resolved_at ? 'Traité' : (stale ? 'Oubliée ?' : 'À jour')}
       </div>
-      <div className="r-meta">{formatRelative(d.last_update_at)}</div>
+      <div className="r-meta r-time">{formatRelative(d.last_update_at)}</div>
     </div>
   )
 }
