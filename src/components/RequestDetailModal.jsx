@@ -130,15 +130,21 @@ export default function RequestDetailModal({ demande, knownDepartments, onUpdate
           </div>
 
           <div className="detail-section detail-section--edit">
+            <div className="field">
+              <label htmlFor="situation-field">
+                {isResolved ? 'Situation au moment du traitement' : 'Situation actuelle'}
+              </label>
+              {isResolved ? (
+                <div className="situation-readonly">{demande.situation}</div>
+              ) : (
+                <textarea id="situation-field" value={situation} onChange={e => setSituation(e.target.value)} />
+              )}
+            </div>
+
             {isResolved ? (
               <StatePill state="done" />
             ) : (
               <>
-                <div className="field">
-                  <label htmlFor="situation-field">Situation actuelle</label>
-                  <textarea id="situation-field" value={situation} onChange={e => setSituation(e.target.value)} />
-                </div>
-
                 <div className="field">
                   <label id="waiting-on-label">Qui doit agir ensuite ?</label>
                   <div className="choice-row" role="group" aria-labelledby="waiting-on-label">
