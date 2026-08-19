@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { isStale, formatDuration } from '../lib/time'
 
-export default function Dashboard({ demandes }) {
+export default function Dashboard({ demandes, loading }) {
   const stats = useMemo(() => {
     const open = demandes.filter(d => !d.resolved_at)
     const resolved = demandes.filter(d => d.resolved_at)
@@ -21,29 +21,35 @@ export default function Dashboard({ demandes }) {
     <div className="card">
       <h2>Tableau de bord</h2>
 
-      <div className="kpis">
-        <div className="kpi">
-          <div className="num">{stats.open}</div>
-          <div className="lbl">Dossiers ouverts</div>
-        </div>
-        <div className={`kpi ${stats.stale > 0 ? 'warn' : ''}`}>
-          <div className="num">{stats.stale}</div>
-          <div className="lbl">Sans mise à jour depuis 48h+</div>
-        </div>
-        <div className="kpi">
-          <div className="num">{stats.avgMs ? formatDuration(stats.avgMs) : '—'}</div>
-          <div className="lbl">Délai moyen de traitement</div>
-        </div>
-        <div className="kpi">
-          <div className="num">{stats.resolvedCount}</div>
-          <div className="lbl">Dossiers traités (total)</div>
-        </div>
-      </div>
+      {loading ? (
+        <div className="empty-state">Chargement des données…</div>
+      ) : (
+        <>
+          <div className="kpis">
+            <div className="kpi">
+              <div className="num">{stats.open}</div>
+              <div className="lbl">Dossiers ouverts</div>
+            </div>
+            <div className={`kpi ${stats.stale > 0 ? 'warn' : ''}`}>
+              <div className="num">{stats.stale}</div>
+              <div className="lbl">Sans mise à jour depuis 48h+</div>
+            </div>
+            <div className="kpi">
+              <div className="num">{stats.avgMs ? formatDuration(stats.avgMs) : '—'}</div>
+              <div className="lbl">Délai moyen de traitement</div>
+            </div>
+            <div className="kpi">
+              <div className="num">{stats.resolvedCount}</div>
+              <div className="lbl">Dossiers traités (total)</div>
+            </div>
+          </div>
 
-      <div className="breakdown">
-        <BreakdownList title="Charge par créateur" data={stats.byAgent} />
-        <BreakdownList title="Charge par département" data={stats.byDept} />
-      </div>
+          <div className="breakdown">
+            <BreakdownList title="Charge par créateur" data={stats.byAgent} />
+            <BreakdownList title="Charge par département" data={stats.byDept} />
+          </div>
+        </>
+      )}
     </div>
   )
 }
