@@ -53,67 +53,73 @@ export default function RequestDetailModal({ demande, knownDepartments, onUpdate
           <button className="btn ghost small" onClick={onClose}>✕</button>
         </div>
         <div className="modal-body">
-          <div className="detail-grid">
-            <div>
-              <div className="k">Objet</div>
-              <div>{demande.objet}</div>
-            </div>
-            <div>
-              <div className="k">Agent créateur</div>
-              <div>{demande.created_by_name}</div>
+          <div className="detail-section">
+            <div className="detail-grid">
+              <div>
+                <div className="k">Objet</div>
+                <div className="v">{demande.objet}</div>
+              </div>
+              <div>
+                <div className="k">Agent créateur</div>
+                <div className="v">{demande.created_by_name || '—'}</div>
+              </div>
             </div>
           </div>
 
-          <div className="timestamps">
-            <span>Créée : {formatDateTime(demande.created_at)}</span>
-            <span>Dernière mise à jour : {formatDateTime(demande.last_update_at)}</span>
-            {isResolved && (
-              <span>Traitée en : {formatDuration(new Date(demande.resolved_at) - new Date(demande.created_at))}</span>
+          <div className="detail-section">
+            <div className="timestamps">
+              <span>Créée : {formatDateTime(demande.created_at)}</span>
+              <span>Dernière mise à jour : {formatDateTime(demande.last_update_at)}</span>
+              {isResolved && (
+                <span>Traitée en : {formatDuration(new Date(demande.resolved_at) - new Date(demande.created_at))}</span>
+              )}
+            </div>
+          </div>
+
+          <div className="detail-section detail-section--edit">
+            {isResolved ? (
+              <StatePill state="done" />
+            ) : (
+              <>
+                <div className="field">
+                  <label>Situation actuelle</label>
+                  <textarea value={situation} onChange={e => setSituation(e.target.value)} />
+                </div>
+
+                <div className="field">
+                  <label>Qui doit agir ensuite ?</label>
+                  <div className="choice-row">
+                    {['nous', 'client', 'departement'].map(v => (
+                      <button
+                        type="button"
+                        key={v}
+                        className={`choice-btn ${v} ${waitingOn === v ? 'active' : ''}`}
+                        onClick={() => setWaitingOn(v)}
+                      >
+                        {v === 'nous' ? 'Nous' : v === 'client' ? 'Client' : 'Département'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {waitingOn === 'departement' && (
+                  <div className="field" style={{ marginBottom: 0 }}>
+                    <label>Département concerné</label>
+                    <input
+                      list="dept-list-detail"
+                      value={departement}
+                      onChange={e => setDepartement(e.target.value)}
+                    />
+                    <datalist id="dept-list-detail">
+                      {knownDepartments.map(dep => <option key={dep} value={dep} />)}
+                    </datalist>
+                  </div>
+                )}
+
+                {error && <div className="msg err">{error}</div>}
+              </>
             )}
           </div>
-
-          {isResolved ? (
-            <StatePill state="done" />
-          ) : (
-            <>
-              <div className="field">
-                <label>Situation actuelle</label>
-                <textarea value={situation} onChange={e => setSituation(e.target.value)} />
-              </div>
-
-              <div className="field">
-                <label>Qui doit agir ensuite ?</label>
-                <div className="choice-row">
-                  {['nous', 'client', 'departement'].map(v => (
-                    <button
-                      type="button"
-                      key={v}
-                      className={`choice-btn ${v} ${waitingOn === v ? 'active' : ''}`}
-                      onClick={() => setWaitingOn(v)}
-                    >
-                      {v === 'nous' ? 'Nous' : v === 'client' ? 'Client' : 'Département'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {waitingOn === 'departement' && (
-                <div className="field">
-                  <label>Département concerné</label>
-                  <input
-                    list="dept-list-detail"
-                    value={departement}
-                    onChange={e => setDepartement(e.target.value)}
-                  />
-                  <datalist id="dept-list-detail">
-                    {knownDepartments.map(dep => <option key={dep} value={dep} />)}
-                  </datalist>
-                </div>
-              )}
-
-              {error && <div className="msg err">{error}</div>}
-            </>
-          )}
         </div>
 
         <div className="modal-actions">
