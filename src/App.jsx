@@ -8,12 +8,24 @@ import NewRequestModal from './components/NewRequestModal'
 import RequestDetailModal from './components/RequestDetailModal'
 
 export default function App() {
-  const [session, setSession] = useState(undefined) // undefined = chargement, null = déconnecté
+  const [session, setSession] = useState(undefined)
   const [tab, setTab] = useState('suivi')
   const [demandes, setDemandes] = useState([])
+  const [demandesLoading, setDemandesLoading] = useState(true)
   const [showNewModal, setShowNewModal] = useState(false)
   const [selectedId, setSelectedId] = useState(null)
+  const [toast, setToast] = useState(null)
   const selected = useMemo(() => demandes.find(d => d.id === selectedId) || null, [demandes, selectedId])
+
+  function notify(message, type = 'success') {
+    setToast({ message, type, key: Date.now() })
+  }
+
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 3500)
+    return () => clearTimeout(t)
+  }, [toast])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
@@ -25,8 +37,10 @@ export default function App() {
     if (!session) return
 
     async function load() {
+      setDemandesLoading(true)
       const { data } = await supabase.from('demandes').select('*').order('created_at', { ascending: false })
       if (data) setDemandes(data)
+      setDemandesLoading(false)
     }
     load()
 
@@ -60,12 +74,14 @@ export default function App() {
     }).select().single()
     if (error) throw error
     setDemandes(prev => (prev.some(d => d.id === data.id) ? prev : [data, ...prev]))
+    notify('Demande créée.')
   }
 
   async function handleUpdate(id, changes) {
     const { data, error } = await supabase.from('demandes').update(changes).eq('id', id).select().single()
     if (error) throw error
     setDemandes(prev => prev.map(d => (d.id === id ? data : d)))
+    notify('Modifications enregistrées.')
   }
 
   async function handleResolve(id, pendingChanges) {
@@ -74,17 +90,21 @@ export default function App() {
       .eq('id', id).select().single()
     if (error) throw error
     setDemandes(prev => prev.map(d => (d.id === id ? data : d)))
+    notify('Dossier marqué comme traité.')
   }
 
   async function handleReopen(id) {
     const { data, error } = await supabase.from('demandes').update({ resolved_at: null }).eq('id', id).select().single()
-    if (!error) setDemandes(prev => prev.map(d => (d.id === id ? data : d)))
+    if (error) { notify("Erreur lors de la réouverture.", 'error'); return }
+    setDemandes(prev => prev.map(d => (d.id === id ? data : d)))
+    notify('Dossier rouvert.')
   }
 
   async function handleDelete(id) {
     const { error } = await supabase.from('demandes').delete().eq('id', id)
     if (error) throw error
     setDemandes(prev => prev.filter(d => d.id !== id))
+    notify('Demande supprimée.')
   }
 
   if (session === undefined) return <div className="loading-screen">Chargement…</div>
@@ -101,8 +121,8 @@ export default function App() {
         onNewRequest={() => setShowNewModal(true)}
       />
 
-      {tab === 'suivi' && <RequestList demandes={demandes} onOpen={setSelectedId} />}
-      {tab === 'dashboard' && <Dashboard demandes={demandes} />}
+      {tab === 'suivi' && <RequestList demandes={demandes} loading={demandesLoading} onOpen={setSelectedId} />}
+      {tab === 'dashboard' && <Dashboard demandes={demandes} loading={demandesLoading} />}
 
       {showNewModal && (
         <NewRequestModal
@@ -122,6 +142,12 @@ export default function App() {
           onDelete={handleDelete}
           onClose={() => setSelectedId(null)}
         />
+      )}
+
+      {toast && (
+        <div className={`toast ${toast.type}`} role="status" aria-live="polite">
+          {toast.message}
+        </div>
       )}
     </div>
   )
