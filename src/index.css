@@ -154,23 +154,15 @@ input, select, textarea { font-family: inherit; font-size: 14px; }
   color: var(--muted);
   font-weight: 600;
 }
-.list-header span:nth-child(4),
 .list-header span:nth-child(5) { text-align: right; }
 
 .list { display: flex; flex-direction: column; gap: 8px; }
 
-.request-row {
-  display: grid;
-  grid-template-columns: 3px 1.2fr 1fr 150px 90px;
-  align-items: center;
-  gap: 14px;
-  background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px 14px;
-  cursor: pointer;
-  transition: border-color 0.12s;
-}
+.request-row .r-main .r-client { font-weight: 700; font-size: 13.5px; }
+.request-row .r-main .r-objet { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+.request-row .r-situation { font-size: 12.5px; color: #3a4150; }
+
 .request-row:hover { border-color: #c7ccd4; }
 .request-row .stripe { align-self: stretch; border-radius: 3px; }
 .request-row .stripe.nous { background: var(--nous); }
