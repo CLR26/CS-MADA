@@ -1,0 +1,106 @@
+/**
+ * Design Tokens — Suivi des Demandes
+ * Modern Ops Design System
+ */
+
+:root {
+  /* Surface & Base Colors */
+  --bg-app: #f8fafc;
+  --bg-subtle: #f1f5f9;
+  --bg-surface: #ffffff;
+  --bg-surface-hover: #f8fafc;
+  --bg-surface-active: #f1f5f9;
+
+  /* Text & Ink */
+  --ink-primary: #0f172a;
+  --ink-secondary: #334155;
+  --ink-muted: #64748b;
+  --ink-subtle: #94a3b8;
+  --ink-inverse: #ffffff;
+
+  /* Borders */
+  --border-light: #f1f5f9;
+  --border-default: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --border-focus: #3b82f6;
+
+  /* Primary Brand (Modern Deep Slate & Indigo) */
+  --brand-primary: #0f172a;
+  --brand-primary-hover: #1e293b;
+  --brand-primary-active: #334155;
+  --brand-accent: #4f46e5;
+  --brand-accent-subtle: #eef2ff;
+
+  /* Sémantique : Qui doit agir */
+  /* NOUS : Action urgente de notre équipe (Ambre / Corail vif) */
+  --state-nous-text: #c2410c;
+  --state-nous-bg: #fff7ed;
+  --state-nous-border: #fed7aa;
+  --state-nous-solid: #ea580c;
+
+  /* CLIENT : En attente du client (Bleu ardoise moderne) */
+  --state-client-text: #0369a1;
+  --state-client-bg: #f0f9ff;
+  --state-client-border: #bae6fd;
+  --state-client-solid: #0284c7;
+
+  /* DEPARTEMENT : En attente service tiers (Violet améthyste) */
+  --state-dept-text: #6d28d9;
+  --state-dept-bg: #f5f3ff;
+  --state-dept-border: #ddd6fe;
+  --state-dept-solid: #7c3aed;
+
+  /* TRAITÉ : Clôturé / Résolu (Vert Émeraude) */
+  --state-done-text: #047857;
+  --state-done-bg: #ecfdf5;
+  --state-done-border: #a7f3d0;
+  --state-done-solid: #059669;
+
+  /* SOUFFRANCE / STALE (> 48h sans update) (Rouge / Alerte) */
+  --stale-text: #be123c;
+  --stale-bg: #fff1f2;
+  --stale-border: #fecdd3;
+  --stale-solid: #e11d48;
+
+  /* Typographie */
+  --font-display: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Radius */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-full: 9999px;
+
+  /* Shadows (Elevations douces multi-couches) */
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.07), 0 2px 4px -2px rgba(15, 23, 42, 0.05);
+  --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.04);
+  --shadow-xl: 0 20px 25px -5px rgba(15, 23, 42, 0.1), 0 8px 10px -6px rgba(15, 23, 42, 0.05);
+  --shadow-drawer: -4px 0 24px rgba(15, 23, 42, 0.12);
+
+  /* Spacing Scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 220ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-drawer: 300ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Z-indices */
+  --z-sticky: 20;
+  --z-drawer: 60;
+  --z-modal: 70;
+  --z-toast: 100;
+}

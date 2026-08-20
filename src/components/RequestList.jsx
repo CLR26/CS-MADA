@@ -1,29 +1,59 @@
 import { useEffect, useMemo, useState } from 'react'
-import { formatRelative, formatDateTime, isStale } from '../lib/time'
-import StatePill from './StatePill'
+import RequestRow from './RequestRow'
+import SegmentedControl from './ui/SegmentedControl'
+import Input from './ui/Input'
+import Button from './ui/Button'
+import { RequestRowSkeleton } from './ui/Skeleton'
+import { isStale } from '../lib/time'
+import { IconSearch, IconInbox, IconAlertTriangle, IconUser, IconBuilding } from '../lib/icons'
 
-export default function RequestList({ demandes, loading, onOpen }) {
-  const [filter, setFilter] = useState('tous')
+export default function RequestList({
+  demandes = [],
+  loading = false,
+  selectedId = null,
+  onOpen,
+  filter = 'tous',
+  onFilterChange,
+}) {
   const [search, setSearch] = useState('')
   const [showDone, setShowDone] = useState(false)
   const [, forceTick] = useState(0)
 
+  // Rafraîchir les temps relatifs chaque minute
   useEffect(() => {
     const t = setInterval(() => forceTick(n => n + 1), 60000)
     return () => clearInterval(t)
   }, [])
 
+  // Calcul des compteurs par état (sur les demandes non résolues sauf si showDone)
+  const counts = useMemo(() => {
+    const active = demandes.filter(d => !d.resolved_at)
+    return {
+      tous: active.length,
+      nous: active.filter(d => d.waiting_on === 'nous').length,
+      client: active.filter(d => d.waiting_on === 'client').length,
+      departement: active.filter(d => d.waiting_on === 'departement').length,
+    }
+  }, [demandes])
+
   const visible = useMemo(() => {
-    let list = demandes.filter(d => showDone ? true : !d.resolved_at)
-    if (filter !== 'tous') list = list.filter(d => d.waiting_on === filter)
+    let list = demandes.filter(d => (showDone ? true : !d.resolved_at))
+    
+    if (filter !== 'tous') {
+      list = list.filter(d => d.waiting_on === filter)
+    }
+
     const q = search.trim().toLowerCase()
     if (q) {
       list = list.filter(d =>
         d.client_ref.toLowerCase().includes(q) ||
         d.objet.toLowerCase().includes(q) ||
-        (d.situation || '').toLowerCase().includes(q)
+        (d.situation || '').toLowerCase().includes(q) ||
+        (d.departement || '').toLowerCase().includes(q)
       )
     }
+
+    // Tri par priorité : Stale non résolu en premier, puis date de dernière mise à jour
     return [...list].sort((a, b) => {
       if (!a.resolved_at && !b.resolved_at) {
         const aStale = isStale(a.last_update_at)
@@ -35,109 +65,125 @@ export default function RequestList({ demandes, loading, onOpen }) {
   }, [demandes, filter, search, showDone])
 
   const hasAnyOpen = demandes.some(d => !d.resolved_at)
-  const filtersActive = search.trim() !== '' || filter !== 'tous'
+  const filtersActive = search.trim() !== '' || filter !== 'tous' || showDone
 
   function resetFilters() {
     setSearch('')
-    setFilter('tous')
+    onFilterChange?.('tous')
+    setShowDone(false)
   }
 
-  return (
-    <div className="card">
-      <h2>Demandes en cours</h2>
+  const filterOptions = [
+    { value: 'tous', label: 'Tous', count: counts.tous },
+    { value: 'nous', label: 'Nous', count: counts.nous, icon: IconAlertTriangle },
+    { value: 'client', label: 'Client', count: counts.client, icon: IconUser },
+    { value: 'departement', label: 'Département', count: counts.departement, icon: IconBuilding },
+  ]
 
-      <div className="toolbar">
-        <input
-          type="text"
-          placeholder="Rechercher un client, un objet ou une situation…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          aria-label="Rechercher"
-        />
-        <div className="filter-group" role="group" aria-label="Filtrer par qui doit agir">
-          {[['tous', 'Tous'], ['nous', 'Nous'], ['client', 'Client'], ['departement', 'Département']].map(([v, label]) => (
-            <button key={v} className={filter === v ? 'active' : ''} aria-pressed={filter === v} onClick={() => setFilter(v)}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <label className="toggle-line">
-          <input type="checkbox" checked={showDone} onChange={e => setShowDone(e.target.checked)} />
-          Afficher les dossiers traités
+  return (
+    <div className="ui-card">
+      <div className="ui-card__header">
+        <h2 className="ui-card__title">
+          <span>Flux des demandes</span>
+          {!loading && (
+            <span style={{ fontSize: 13, color: 'var(--ink-muted)', fontWeight: 500 }}>
+              ({visible.length} affichée{visible.length > 1 ? 's' : ''})
+            </span>
+          )}
+        </h2>
+
+        {/* Toggle traités */}
+        <label className="ui-toggle-check">
+          <input
+            type="checkbox"
+            checked={showDone}
+            onChange={e => setShowDone(e.target.checked)}
+          />
+          <span>Afficher les dossiers traités</span>
         </label>
       </div>
 
+      {/* Toolbar avec recherche & segmented control */}
+      <div className="ui-toolbar">
+        <div className="ui-toolbar__left">
+          <Input
+            id="search-requests"
+            placeholder="Rechercher par client, objet, situation, département…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            icon={IconSearch}
+            aria-label="Rechercher dans les demandes"
+            style={{ marginBottom: 0 }}
+          />
+        </div>
+
+        <div className="ui-toolbar__right">
+          <SegmentedControl
+            options={filterOptions}
+            value={filter}
+            onChange={onFilterChange || (() => {})}
+            size="md"
+          />
+        </div>
+      </div>
+
+      {/* Contenu de la liste */}
       {loading ? (
-        <div className="empty-state">Chargement des demandes…</div>
+        <div className="request-list">
+          <RequestRowSkeleton />
+          <RequestRowSkeleton />
+          <RequestRowSkeleton />
+          <RequestRowSkeleton />
+        </div>
       ) : visible.length === 0 ? (
-        <div className="empty-state">
-          <div>
-            {search.trim() ? 'Aucun résultat pour cette recherche.'
-              : filter !== 'tous' ? 'Aucune demande ne correspond à ce filtre.'
-              : !hasAnyOpen && !showDone ? 'Aucun dossier en cours. Tout est traité.'
-              : 'Aucune demande à afficher.'}
+        <div className="ui-empty-state">
+          <div className="ui-empty-state__icon">
+            <IconInbox size={26} />
           </div>
+          <h3 className="ui-empty-state__title">
+            {search.trim()
+              ? 'Aucun résultat pour cette recherche'
+              : filter !== 'tous'
+              ? `Aucune demande dans la catégorie "${filter}"`
+              : !hasAnyOpen && !showDone
+              ? 'Tous les dossiers sont traités !'
+              : 'Aucune demande à afficher'}
+          </h3>
+          <p className="ui-empty-state__description">
+            {search.trim()
+              ? 'Essayez de modifier vos termes de recherche ou de réinitialiser vos filtres.'
+              : !hasAnyOpen && !showDone
+              ? 'Félicitations à toute l’équipe, le tableau des demandes en cours est vide.'
+              : 'Créez une nouvelle demande pour commencer le suivi.'}
+          </p>
           {filtersActive && (
-            <button className="btn secondary small" style={{ marginTop: 12 }} onClick={resetFilters}>
+            <Button variant="secondary" size="sm" onClick={resetFilters}>
               Réinitialiser les filtres
-            </button>
+            </Button>
           )}
         </div>
       ) : (
         <>
-          <div className="list-header">
+          <div className="request-list-header">
             <span />
-            <span>Client / Objet</span>
-            <span>Situation</span>
+            <span>Client & Objet</span>
+            <span>Situation actuelle</span>
             <span>Qui doit agir</span>
-            <span>Mise à jour</span>
+            <span className="request-list-header__time">Mise à jour</span>
           </div>
-          <div className="list">
-            {visible.map(d => <Row key={d.id} d={d} onOpen={onOpen} />)}
+
+          <div className="request-list">
+            {visible.map(demande => (
+              <RequestRow
+                key={demande.id}
+                demande={demande}
+                isSelected={selectedId === demande.id}
+                onOpen={onOpen}
+              />
+            ))}
           </div>
         </>
       )}
-    </div>
-  )
-}
-
-function Row({ d, onOpen }) {
-  const stateClass = d.resolved_at ? 'done' : d.waiting_on
-  const stale = !d.resolved_at && isStale(d.last_update_at)
-  const situationDiffersFromObjet = d.situation && d.situation.trim() !== d.objet.trim()
-
-  function handleKeyDown(e) {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      onOpen(d.id)
-    }
-  }
-
-  return (
-    <div
-      className="request-row"
-      onClick={() => onOpen(d.id)}
-      onKeyDown={handleKeyDown}
-      tabIndex={0}
-      role="button"
-      aria-label={`${d.client_ref} — ${d.objet}${stale ? ', sans mise à jour depuis plus de 48h' : ''}`}
-    >
-      <div className={`stripe ${stateClass}`} />
-      <div className="r-main">
-        <div className="r-client">{d.client_ref}</div>
-        <div className="r-objet">{d.objet}</div>
-      </div>
-      <div className="r-situation">
-        {situationDiffersFromObjet ? d.situation : <span className="r-new">Nouvelle demande</span>}
-        {d.waiting_on === 'departement' && d.departement && <span className="r-dept-tag"> · {d.departement}</span>}
-      </div>
-      <div className="r-who">
-        <StatePill state={stateClass} />
-        {stale && <span className="urgency-badge">⚠ Oubliée</span>}
-      </div>
-      <div className="r-meta r-time" title={`Créée : ${formatDateTime(d.created_at)}`}>
-        {formatRelative(d.last_update_at)}
-      </div>
     </div>
   )
 }

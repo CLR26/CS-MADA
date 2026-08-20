@@ -5,17 +5,35 @@ import Topbar from './components/Topbar'
 import RequestList from './components/RequestList'
 import Dashboard from './components/Dashboard'
 import NewRequestModal from './components/NewRequestModal'
-import RequestDetailModal from './components/RequestDetailModal'
+import RequestDrawer from './components/RequestDrawer'
+import Toast from './components/ui/Toast'
+import { getUrlParams, updateUrlParams } from './lib/urlState'
 
 export default function App() {
+  const initialParams = useMemo(() => getUrlParams(), [])
+
   const [session, setSession] = useState(undefined)
-  const [tab, setTab] = useState('suivi')
+  const [tab, setTab] = useState(initialParams.tab || 'suivi')
+  const [filter, setFilter] = useState(initialParams.filter || 'tous')
+  const [selectedId, setSelectedId] = useState(initialParams.dossier || null)
   const [demandes, setDemandes] = useState([])
   const [demandesLoading, setDemandesLoading] = useState(true)
   const [showNewModal, setShowNewModal] = useState(false)
-  const [selectedId, setSelectedId] = useState(null)
   const [toast, setToast] = useState(null)
-  const selected = useMemo(() => demandes.find(d => d.id === selectedId) || null, [demandes, selectedId])
+
+  // Synchronisation de l'URL quand l'état change
+  useEffect(() => {
+    updateUrlParams({
+      tab,
+      dossier: selectedId,
+      filter,
+    })
+  }, [tab, selectedId, filter])
+
+  const selected = useMemo(
+    () => demandes.find(d => d.id === selectedId) || null,
+    [demandes, selectedId]
+  )
 
   function notify(message, type = 'success') {
     setToast({ message, type, key: Date.now() })
@@ -23,7 +41,7 @@ export default function App() {
 
   useEffect(() => {
     if (!toast) return
-    const t = setTimeout(() => setToast(null), 3500)
+    const t = setTimeout(() => setToast(null), 3800)
     return () => clearTimeout(t)
   }, [toast])
 
@@ -38,7 +56,10 @@ export default function App() {
 
     async function load() {
       setDemandesLoading(true)
-      const { data } = await supabase.from('demandes').select('*').order('created_at', { ascending: false })
+      const { data } = await supabase
+        .from('demandes')
+        .select('*')
+        .order('created_at', { ascending: false })
       if (data) setDemandes(data)
       setDemandesLoading(false)
     }
@@ -65,39 +86,67 @@ export default function App() {
     return [...set].sort()
   }, [demandes])
 
+  const openRequestsCount = useMemo(
+    () => demandes.filter(d => !d.resolved_at).length,
+    [demandes]
+  )
+
   async function handleCreate(payload) {
-    const { data, error } = await supabase.from('demandes').insert({
-      ...payload,
-      situation: payload.objet,
-      created_by: session.user.id,
-      created_by_name: session.user.user_metadata?.name || session.user.email,
-    }).select().single()
+    const { data, error } = await supabase
+      .from('demandes')
+      .insert({
+        ...payload,
+        situation: payload.objet,
+        created_by: session.user.id,
+        created_by_name: session.user.user_metadata?.name || session.user.email,
+      })
+      .select()
+      .single()
     if (error) throw error
     setDemandes(prev => (prev.some(d => d.id === data.id) ? prev : [data, ...prev]))
-    notify('Demande créée.')
+    notify('Demande enregistrée avec succès.')
   }
 
   async function handleUpdate(id, changes) {
-    const { data, error } = await supabase.from('demandes').update(changes).eq('id', id).select().single()
+    const { data, error } = await supabase
+      .from('demandes')
+      .update(changes)
+      .eq('id', id)
+      .select()
+      .single()
     if (error) throw error
     setDemandes(prev => prev.map(d => (d.id === id ? data : d)))
     notify('Modifications enregistrées.')
   }
 
   async function handleResolve(id, pendingChanges) {
-    const { data, error } = await supabase.from('demandes')
-      .update({ ...(pendingChanges || {}), resolved_at: new Date().toISOString() })
-      .eq('id', id).select().single()
+    const { data, error } = await supabase
+      .from('demandes')
+      .update({
+        ...(pendingChanges || {}),
+        resolved_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single()
     if (error) throw error
     setDemandes(prev => prev.map(d => (d.id === id ? data : d)))
     notify('Dossier marqué comme traité.')
   }
 
   async function handleReopen(id) {
-    const { data, error } = await supabase.from('demandes').update({ resolved_at: null }).eq('id', id).select().single()
-    if (error) { notify("Erreur lors de la réouverture.", 'error'); return }
+    const { data, error } = await supabase
+      .from('demandes')
+      .update({ resolved_at: null })
+      .eq('id', id)
+      .select()
+      .single()
+    if (error) {
+      notify('Erreur lors de la réouverture du dossier.', 'error')
+      return
+    }
     setDemandes(prev => prev.map(d => (d.id === id ? data : d)))
-    notify('Dossier rouvert.')
+    notify('Dossier rouvert pour traitement.')
   }
 
   async function handleDelete(id) {
@@ -107,7 +156,21 @@ export default function App() {
     notify('Demande supprimée.')
   }
 
-  if (session === undefined) return <div className="loading-screen">Chargement…</div>
+  function handleSelectFilter(newTab, newFilter) {
+    setTab(newTab)
+    if (newFilter) setFilter(newFilter)
+  }
+
+  if (session === undefined) {
+    return (
+      <div className="login-shell">
+        <div style={{ color: 'var(--ink-muted)', fontWeight: 600, fontSize: 14 }}>
+          Chargement de l'application…
+        </div>
+      </div>
+    )
+  }
+
   if (!session) return <Login />
 
   const agentName = session.user.user_metadata?.name || session.user.email
@@ -118,11 +181,30 @@ export default function App() {
         tab={tab}
         onTabChange={setTab}
         agentName={agentName}
+        openRequestsCount={openRequestsCount}
         onNewRequest={() => setShowNewModal(true)}
       />
 
-      {tab === 'suivi' && <RequestList demandes={demandes} loading={demandesLoading} onOpen={setSelectedId} />}
-      {tab === 'dashboard' && <Dashboard demandes={demandes} loading={demandesLoading} />}
+      <main role="main">
+        {tab === 'suivi' && (
+          <RequestList
+            demandes={demandes}
+            loading={demandesLoading}
+            selectedId={selectedId}
+            onOpen={setSelectedId}
+            filter={filter}
+            onFilterChange={setFilter}
+          />
+        )}
+
+        {tab === 'dashboard' && (
+          <Dashboard
+            demandes={demandes}
+            loading={demandesLoading}
+            onSelectFilter={handleSelectFilter}
+          />
+        )}
+      </main>
 
       {showNewModal && (
         <NewRequestModal
@@ -133,7 +215,7 @@ export default function App() {
       )}
 
       {selected && (
-        <RequestDetailModal
+        <RequestDrawer
           demande={selected}
           knownDepartments={knownDepartments}
           onUpdate={handleUpdate}
@@ -145,9 +227,11 @@ export default function App() {
       )}
 
       {toast && (
-        <div className={`toast ${toast.type}`} role="status" aria-live="polite">
-          {toast.message}
-        </div>
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
       )}
     </div>
   )

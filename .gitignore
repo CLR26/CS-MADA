@@ -1,0 +1,13 @@
+# Dépendances
+node_modules/
+
+# Build de production
+dist/
+
+# Variables d'environnement locales (ne jamais versionner)
+.env
+.env.local
+.env.*.local
+
+# Archives
+*.zip

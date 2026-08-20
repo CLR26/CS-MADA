@@ -1,6 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
+import Modal from './ui/Modal'
+import Input from './ui/Input'
+import Button from './ui/Button'
+import { IconAlertTriangle, IconUser, IconBuilding, IconPlus } from '../lib/icons'
 
-export default function NewRequestModal({ knownDepartments, onCreate, onClose }) {
+export default function NewRequestModal({ knownDepartments = [], onCreate, onClose }) {
   const [clientRef, setClientRef] = useState('')
   const [objet, setObjet] = useState('')
   const [waitingOn, setWaitingOn] = useState('nous')
@@ -8,27 +12,32 @@ export default function NewRequestModal({ knownDepartments, onCreate, onClose })
   const [error, setError] = useState(null)
   const [saving, setSaving] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
-  const modalRef = useRef(null)
 
   const dirty = clientRef.trim() !== '' || objet.trim() !== '' || departement.trim() !== ''
 
-  useEffect(() => { modalRef.current?.focus() }, [])
-
-  function requestClose() {
-    if (dirty && !saving) { setConfirmClose(true); return }
+  function handleRequestClose() {
+    if (confirmClose) {
+      setConfirmClose(false)
+      return
+    }
+    if (dirty && !saving) {
+      setConfirmClose(true)
+      return
+    }
     onClose()
   }
 
-  useEffect(() => {
-    function handleKeyDown(e) { if (e.key === 'Escape') requestClose() }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [dirty, saving])
-
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!clientRef.trim() || !objet.trim()) { setError('Le client et l’objet sont obligatoires.'); return }
-    if (waitingOn === 'departement' && !departement.trim()) { setError('Précisez le département concerné.'); return }
+    if (!clientRef.trim() || !objet.trim()) {
+      setError('Le nom du client et l’objet de la demande sont obligatoires.')
+      return
+    }
+    if (waitingOn === 'departement' && !departement.trim()) {
+      setError('Veuillez préciser le département concerné.')
+      return
+    }
+
     setSaving(true)
     setError(null)
     try {
@@ -40,70 +49,130 @@ export default function NewRequestModal({ knownDepartments, onCreate, onClose })
       })
       onClose()
     } catch {
-      setError("Erreur d'enregistrement. Réessayez.")
+      setError("Erreur lors de l'enregistrement de la demande. Réessayez.")
       setSaving(false)
     }
   }
 
   return (
-    <div className="overlay" onClick={requestClose}>
-      <div className="modal" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="new-modal-title" tabIndex={-1} ref={modalRef}>
-        <div className="modal-header">
-          <h3 id="new-modal-title">Nouvelle demande</h3>
-          <button className="btn ghost small" onClick={requestClose} aria-label="Fermer">✕</button>
+    <Modal
+      isOpen={true}
+      onClose={handleRequestClose}
+      title="Créer une nouvelle demande"
+      subtitle="Ajoutez un dossier pour démarrer le suivi d'équipe en direct."
+      maxWidth="480px"
+      footer={
+        confirmClose ? (
+          <div className="ui-confirm-box" style={{ width: '100%', margin: 0 }}>
+            <span>⚠️ Fermer sans enregistrer la saisie en cours ?</span>
+            <div className="ui-confirm-box__actions">
+              <Button variant="secondary" size="sm" onClick={() => setConfirmClose(false)}>
+                Continuer la saisie
+              </Button>
+              <Button variant="danger" size="sm" onClick={onClose}>
+                Fermer sans enregistrer
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <Button variant="secondary" size="md" onClick={handleRequestClose} disabled={saving}>
+              Annuler
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              icon={IconPlus}
+              onClick={handleSubmit}
+              disabled={saving}
+            >
+              {saving ? 'Enregistrement…' : 'Créer la demande'}
+            </Button>
+          </>
+        )
+      }
+    >
+      <form onSubmit={handleSubmit}>
+        <Input
+          id="new-client-field"
+          label="Client"
+          value={clientRef}
+          onChange={e => setClientRef(e.target.value)}
+          placeholder="Ex : M. Dupont, SARL Dubois, 06 12 34 56 78..."
+          required
+          autoFocus
+          helper="Nom, référence client ou numéro de téléphone."
+        />
+
+        <Input
+          id="new-objet-field"
+          label="Objet de la demande"
+          value={objet}
+          onChange={e => setObjet(e.target.value)}
+          placeholder="Ex : Colis non reçu, facture en double, devis..."
+          required
+          helper="Résumé clair en une ligne."
+        />
+
+        {/* Qui doit agir ensuite */}
+        <div className="ui-field">
+          <label className="ui-label">Qui doit agir ensuite ? *</label>
+          <div className="ui-choice-grid" role="group" aria-label="Qui doit agir ensuite">
+            <button
+              type="button"
+              className={`ui-choice-card ui-choice-card--nous ${waitingOn === 'nous' ? 'ui-choice-card--active' : ''}`}
+              onClick={() => setWaitingOn('nous')}
+              aria-pressed={waitingOn === 'nous'}
+            >
+              <IconAlertTriangle size={18} />
+              <span className="ui-choice-card__label">Nous</span>
+              <span className="ui-choice-card__sublabel">Action équipe</span>
+            </button>
+
+            <button
+              type="button"
+              className={`ui-choice-card ui-choice-card--client ${waitingOn === 'client' ? 'ui-choice-card--active' : ''}`}
+              onClick={() => setWaitingOn('client')}
+              aria-pressed={waitingOn === 'client'}
+            >
+              <IconUser size={18} />
+              <span className="ui-choice-card__label">Client</span>
+              <span className="ui-choice-card__sublabel">En attente</span>
+            </button>
+
+            <button
+              type="button"
+              className={`ui-choice-card ui-choice-card--dept ${waitingOn === 'departement' ? 'ui-choice-card--active' : ''}`}
+              onClick={() => setWaitingOn('departement')}
+              aria-pressed={waitingOn === 'departement'}
+            >
+              <IconBuilding size={18} />
+              <span className="ui-choice-card__label">Département</span>
+              <span className="ui-choice-card__sublabel">Service tiers</span>
+            </button>
+          </div>
         </div>
-        <form onSubmit={handleSubmit}>
-          <div className="modal-body">
-            <div className="field">
-              <label htmlFor="client-field">Client *</label>
-              <input id="client-field" value={clientRef} onChange={e => setClientRef(e.target.value)} placeholder="Nom ou téléphone du client" autoFocus />
-            </div>
-            <div className="field">
-              <label htmlFor="objet-field">Objet *</label>
-              <input id="objet-field" value={objet} onChange={e => setObjet(e.target.value)} placeholder="Ex : Colis non reçu, facturation double…" />
-            </div>
-            <div className="field">
-              <label id="new-waiting-on-label">Qui doit agir ensuite ? *</label>
-              <div className="choice-row" role="group" aria-labelledby="new-waiting-on-label">
-                {['nous', 'client', 'departement'].map(v => (
-                  <button
-                    type="button"
-                    key={v}
-                    className={`choice-btn ${v} ${waitingOn === v ? 'active' : ''}`}
-                    aria-pressed={waitingOn === v}
-                    onClick={() => setWaitingOn(v)}
-                  >
-                    {v === 'nous' ? 'Nous' : v === 'client' ? 'Client' : 'Département'}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {waitingOn === 'departement' && (
-              <div className="field">
-                <label htmlFor="dept-field">Département concerné *</label>
-                <input id="dept-field" list="dept-list" value={departement} onChange={e => setDepartement(e.target.value)} placeholder="Ex : Comptabilité, Logistique…" />
-                <datalist id="dept-list">
-                  {knownDepartments.map(dep => <option key={dep} value={dep} />)}
-                </datalist>
-              </div>
-            )}
-            {error && <div className="msg err" role="alert">{error}</div>}
-            {confirmClose && (
-              <div className="msg warn" role="alert">
-                Cette demande n'a pas été enregistrée.
-                <div className="confirm-actions">
-                  <button type="button" className="btn secondary small" onClick={() => setConfirmClose(false)}>Continuer la saisie</button>
-                  <button type="button" className="btn danger small" onClick={onClose}>Fermer sans enregistrer</button>
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="modal-actions">
-            <button type="button" className="btn secondary" onClick={requestClose}>Annuler</button>
-            <button type="submit" className="btn" disabled={saving}>{saving ? 'Enregistrement…' : 'Enregistrer'}</button>
-          </div>
-        </form>
-      </div>
-    </div>
+
+        {waitingOn === 'departement' && (
+          <Input
+            id="new-dept-field"
+            label="Département concerné"
+            value={departement}
+            onChange={e => setDepartement(e.target.value)}
+            placeholder="Ex : Comptabilité, Logistique, SAV..."
+            list="new-dept-list"
+            required
+            icon={IconBuilding}
+          />
+        )}
+        <datalist id="new-dept-list">
+          {knownDepartments.map(dep => (
+            <option key={dep} value={dep} />
+          ))}
+        </datalist>
+
+        {error && <div className="ui-field__msg ui-field__msg--error" style={{ marginTop: 8 }}>{error}</div>}
+      </form>
+    </Modal>
   )
 }
