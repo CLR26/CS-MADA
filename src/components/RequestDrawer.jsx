@@ -359,7 +359,7 @@ export default function RequestDrawer({
                 label="Département concerné"
                 value={departement}
                 onChange={e => setDepartement(e.target.value)}
-                placeholder="Ex : Logistique, Comptabilité, Service Juridique..."
+                placeholder="Ex : Comptabilité, Groundops..."
                 list="detail-known-departments"
                 required
                 icon={IconBuilding}
