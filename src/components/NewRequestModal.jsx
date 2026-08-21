@@ -98,7 +98,7 @@ export default function NewRequestModal({ knownDepartments = [], onCreate, onClo
           label="Client"
           value={clientRef}
           onChange={e => setClientRef(e.target.value)}
-          placeholder="Ex : M. Dupont, SARL Dubois, 06 12 34 56 78..."
+          placeholder="Ex : M. Dupont, MU1201000002, 52 00 00 00"
           required
           autoFocus
           helper="Nom, référence client ou numéro de téléphone."
@@ -109,7 +109,7 @@ export default function NewRequestModal({ knownDepartments = [], onCreate, onClo
           label="Objet de la demande"
           value={objet}
           onChange={e => setObjet(e.target.value)}
-          placeholder="Ex : Colis non reçu, facture en double, devis..."
+          placeholder="Ex : Colis non reçu, facture en double..."
           required
           helper="Résumé clair en une ligne."
         />
@@ -159,7 +159,7 @@ export default function NewRequestModal({ knownDepartments = [], onCreate, onClo
             label="Département concerné"
             value={departement}
             onChange={e => setDepartement(e.target.value)}
-            placeholder="Ex : Comptabilité, Logistique, SAV..."
+            placeholder="Ex : Comptabilité, Groundops..."
             list="new-dept-list"
             required
             icon={IconBuilding}
