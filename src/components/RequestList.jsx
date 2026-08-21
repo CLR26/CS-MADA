@@ -108,7 +108,7 @@ export default function RequestList({
         <div className="ui-toolbar__left">
           <Input
             id="search-requests"
-            placeholder="Rechercher par client, objet, situation, département…"
+            placeholder="Rechercher…"
             value={search}
             onChange={e => setSearch(e.target.value)}
             icon={IconSearch}
