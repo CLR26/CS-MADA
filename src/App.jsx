@@ -18,6 +18,9 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(initialParams.dossier || null)
   const [demandes, setDemandes] = useState([])
   const [demandesLoading, setDemandesLoading] = useState(true)
+  const [demandes, setDemandes] = useState([])
+  const [demandesLoading, setDemandesLoading] = useState(true)
+  const [events, setEvents] = useState([])
   const [showNewModal, setShowNewModal] = useState(false)
   const [toast, setToast] = useState(null)
 
@@ -33,6 +36,11 @@ export default function App() {
   const selected = useMemo(
     () => demandes.find(d => d.id === selectedId) || null,
     [demandes, selectedId]
+  )
+
+  const selectedEvents = useMemo(
+    () => events.filter(e => e.demande_id === selectedId),
+    [events, selectedId]
   )
 
   function notify(message, type = 'success') {
@@ -80,7 +88,27 @@ export default function App() {
 
     return () => supabase.removeChannel(channel)
   }, [session])
+    useEffect(() => {
+    if (!session) return
 
+    async function loadEvents() {
+      const { data } = await supabase
+        .from('demande_events')
+        .select('*')
+        .order('created_at', { ascending: true })
+      if (data) setEvents(data)
+    }
+    loadEvents()
+
+    const channel = supabase
+      .channel('demande-events-realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'demande_events' }, ({ new: row }) => {
+        setEvents(prev => (prev.some(e => e.id === row.id) ? prev : [...prev, row]))
+      })
+      .subscribe()
+
+    return () => supabase.removeChannel(channel)
+  }, [session])
   const knownDepartments = useMemo(() => {
     const set = new Set(demandes.map(d => d.departement).filter(Boolean))
     return [...set].sort()
@@ -233,6 +261,7 @@ export default function App() {
           demande={selected}
           knownDepartments={knownDepartments}
           currentUserId={session.user.id}
+          events={selectedEvents}
           onUpdate={handleUpdate}
           onAssign={handleAssign}
           onResolve={handleResolve}
