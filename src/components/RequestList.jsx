@@ -14,6 +14,16 @@ export default function RequestList({
   onOpen,
   filter = 'tous',
   onFilterChange,
+  currentUserId,
+}) {
+
+export default function RequestList({
+  demandes = [],
+  loading = false,
+  selectedId = null,
+  onOpen,
+  filter = 'tous',
+  onFilterChange,
 }) {
   const [search, setSearch] = useState('')
   const [showDone, setShowDone] = useState(false)
@@ -26,22 +36,25 @@ export default function RequestList({
   }, [])
 
   // Calcul des compteurs par état (sur les demandes non résolues sauf si showDone)
-  const counts = useMemo(() => {
+    const counts = useMemo(() => {
     const active = demandes.filter(d => !d.resolved_at)
     return {
       tous: active.length,
       nous: active.filter(d => d.waiting_on === 'nous').length,
       client: active.filter(d => d.waiting_on === 'client').length,
       departement: active.filter(d => d.waiting_on === 'departement').length,
+      mine: active.filter(d => d.assigned_to === currentUserId).length,
     }
-  }, [demandes])
+  }, [demandes, currentUserId]))
 
   const visible = useMemo(() => {
     let list = demandes.filter(d => (showDone ? true : !d.resolved_at))
     
-    if (filter !== 'tous') {
+    if (filter === 'mine') {
+      list = list.filter(d => d.assigned_to === currentUserId)
+    } else if (filter !== 'tous') {
       list = list.filter(d => d.waiting_on === filter)
-    }
+    }, [demandes, filter, search, showDone, currentUserId])
 
     const q = search.trim().toLowerCase()
     if (q) {
@@ -73,13 +86,14 @@ export default function RequestList({
     setShowDone(false)
   }
 
-  const filterOptions = [
+    const filterOptions = [
     { value: 'tous', label: 'Tous', count: counts.tous },
+    { value: 'mine', label: 'Mes demandes', count: counts.mine, icon: IconUser },
     { value: 'nous', label: 'Nous', count: counts.nous, icon: IconAlertTriangle },
     { value: 'client', label: 'Client', count: counts.client, icon: IconUser },
     { value: 'departement', label: 'Département', count: counts.departement, icon: IconBuilding },
   ]
-
+  
   return (
     <div className="ui-card">
       <div className="ui-card__header">
@@ -143,6 +157,8 @@ export default function RequestList({
           <h3 className="ui-empty-state__title">
             {search.trim()
               ? 'Aucun résultat pour cette recherche'
+              : filter === 'mine'
+              ? 'Aucune demande qui vous est attribuée'
               : filter !== 'tous'
               ? `Aucune demande dans la catégorie "${filter}"`
               : !hasAnyOpen && !showDone
