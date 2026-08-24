@@ -16,15 +16,6 @@ export default function RequestList({
   onFilterChange,
   currentUserId,
 }) {
-
-export default function RequestList({
-  demandes = [],
-  loading = false,
-  selectedId = null,
-  onOpen,
-  filter = 'tous',
-  onFilterChange,
-}) {
   const [search, setSearch] = useState('')
   const [showDone, setShowDone] = useState(false)
   const [, forceTick] = useState(0)
@@ -36,7 +27,7 @@ export default function RequestList({
   }, [])
 
   // Calcul des compteurs par état (sur les demandes non résolues sauf si showDone)
-    const counts = useMemo(() => {
+  const counts = useMemo(() => {
     const active = demandes.filter(d => !d.resolved_at)
     return {
       tous: active.length,
@@ -45,7 +36,7 @@ export default function RequestList({
       departement: active.filter(d => d.waiting_on === 'departement').length,
       mine: active.filter(d => d.assigned_to === currentUserId).length,
     }
-  }, [demandes, currentUserId]))
+  }, [demandes, currentUserId])
 
   const visible = useMemo(() => {
     let list = demandes.filter(d => (showDone ? true : !d.resolved_at))
@@ -54,7 +45,7 @@ export default function RequestList({
       list = list.filter(d => d.assigned_to === currentUserId)
     } else if (filter !== 'tous') {
       list = list.filter(d => d.waiting_on === filter)
-    }, [demandes, filter, search, showDone, currentUserId])
+    }
 
     const q = search.trim().toLowerCase()
     if (q) {
@@ -75,7 +66,7 @@ export default function RequestList({
       }
       return new Date(b.last_update_at) - new Date(a.last_update_at)
     })
-  }, [demandes, filter, search, showDone])
+  }, [demandes, filter, search, showDone, currentUserId])
 
   const hasAnyOpen = demandes.some(d => !d.resolved_at)
   const filtersActive = search.trim() !== '' || filter !== 'tous' || showDone
@@ -86,14 +77,14 @@ export default function RequestList({
     setShowDone(false)
   }
 
-    const filterOptions = [
+  const filterOptions = [
     { value: 'tous', label: 'Tous', count: counts.tous },
     { value: 'mine', label: 'Mes demandes', count: counts.mine, icon: IconUser },
     { value: 'nous', label: 'Nous', count: counts.nous, icon: IconAlertTriangle },
     { value: 'client', label: 'Client', count: counts.client, icon: IconUser },
     { value: 'departement', label: 'Département', count: counts.departement, icon: IconBuilding },
   ]
-  
+
   return (
     <div className="ui-card">
       <div className="ui-card__header">
@@ -122,7 +113,7 @@ export default function RequestList({
         <div className="ui-toolbar__left">
           <Input
             id="search-requests"
-            placeholder="Rechercher…"
+            placeholder="Rechercher par client, objet, situation, département…"
             value={search}
             onChange={e => setSearch(e.target.value)}
             icon={IconSearch}
