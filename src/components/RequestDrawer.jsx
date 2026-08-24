@@ -1,3 +1,4 @@
+import ActivityFeed from './ActivityFeed'
 import { useEffect, useState } from 'react'
 import Drawer from './ui/Drawer'
 import Badge from './ui/Badge'
