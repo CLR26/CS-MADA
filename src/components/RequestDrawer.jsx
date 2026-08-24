@@ -15,6 +15,7 @@ export default function RequestDrawer({
   events = [],
   onUpdate,
   onAssign,
+  onAddEvent,
   onResolve,
   onReopen,
   onDelete,
@@ -409,7 +410,7 @@ export default function RequestDrawer({
         <label className="ui-label" style={{ marginBottom: 6, display: 'block' }}>
           Fil d'activité
         </label>
-        <ActivityFeed events={events} />
+        <ActivityFeed events={events} onSend={content => onAddEvent(demande.id, content)} />
       </div>
     </Drawer>
   )
