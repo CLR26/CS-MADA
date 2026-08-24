@@ -18,8 +18,6 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(initialParams.dossier || null)
   const [demandes, setDemandes] = useState([])
   const [demandesLoading, setDemandesLoading] = useState(true)
-  const [demandes, setDemandes] = useState([])
-  const [demandesLoading, setDemandesLoading] = useState(true)
   const [events, setEvents] = useState([])
   const [showNewModal, setShowNewModal] = useState(false)
   const [toast, setToast] = useState(null)
@@ -88,7 +86,8 @@ export default function App() {
 
     return () => supabase.removeChannel(channel)
   }, [session])
-    useEffect(() => {
+
+  useEffect(() => {
     if (!session) return
 
     async function loadEvents() {
@@ -109,6 +108,7 @@ export default function App() {
 
     return () => supabase.removeChannel(channel)
   }, [session])
+
   const knownDepartments = useMemo(() => {
     const set = new Set(demandes.map(d => d.departement).filter(Boolean))
     return [...set].sort()
@@ -146,20 +146,22 @@ export default function App() {
     setDemandes(prev => prev.map(d => (d.id === id ? data : d)))
     notify('Modifications enregistrées.')
   }
+
   async function handleAssign(id) {
-  const { data, error } = await supabase
-    .from('demandes')
-    .update({
-      assigned_to: session.user.id,
-      assigned_to_name: session.user.user_metadata?.name || session.user.email,
-    })
-    .eq('id', id)
-    .select()
-    .single()
-  if (error) throw error
-  setDemandes(prev => prev.map(d => (d.id === id ? data : d)))
-  notify('Dossier pris en charge.')
-}
+    const { data, error } = await supabase
+      .from('demandes')
+      .update({
+        assigned_to: session.user.id,
+        assigned_to_name: session.user.user_metadata?.name || session.user.email,
+      })
+      .eq('id', id)
+      .select()
+      .single()
+    if (error) throw error
+    setDemandes(prev => prev.map(d => (d.id === id ? data : d)))
+    notify('Dossier pris en charge.')
+  }
+
   async function handleResolve(id, pendingChanges) {
     const { data, error } = await supabase
       .from('demandes')
