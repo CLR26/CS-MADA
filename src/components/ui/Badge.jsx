@@ -35,6 +35,11 @@ const STATE_CONFIG = {
     icon: IconClock,
     className: 'badge--stale',
   },
+  unassigned: {
+    label: 'Non attribué',
+    icon: IconUser,
+    className: 'badge--neutral',
+  },
 }
 
 export default function Badge({
