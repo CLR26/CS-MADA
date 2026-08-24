@@ -10,7 +10,9 @@ import { IconCheck, IconRotateCcw, IconTrash, IconBuilding, IconUser, IconAlertT
 export default function RequestDrawer({
   demande,
   knownDepartments = [],
+  currentUserId,
   onUpdate,
+  onAssign,
   onResolve,
   onReopen,
   onDelete,
@@ -116,7 +118,17 @@ export default function RequestDrawer({
       setSaving(false)
     }
   }
-
+  async function handleAssignAction() {
+    setSaving(true)
+    setError(null)
+    try {
+      await onAssign(demande.id)
+    } catch {
+      setError('Erreur lors de la prise en charge.')
+    } finally {
+      setSaving(false)
+    }
+  }
   async function handleReopenAction() {
     setSaving(true)
     setError(null)
@@ -239,8 +251,19 @@ export default function RequestDrawer({
                   >
                     Rouvrir le dossier
                   </Button>
-                ) : (
+                               ) : (
                   <>
+                    {demande.assigned_to !== currentUserId && (
+                      <Button
+                        variant="secondary"
+                        size="md"
+                        icon={IconUser}
+                        onClick={handleAssignAction}
+                        disabled={saving}
+                      >
+                        Prendre en charge
+                      </Button>
+                    )}
                     <Button
                       variant="secondary"
                       size="md"
