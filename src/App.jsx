@@ -231,7 +231,9 @@ export default function App() {
         <RequestDrawer
           demande={selected}
           knownDepartments={knownDepartments}
+          currentUserId={session.user.id}
           onUpdate={handleUpdate}
+          onAssign={handleAssign}
           onResolve={handleResolve}
           onReopen={handleReopen}
           onDelete={handleDelete}
