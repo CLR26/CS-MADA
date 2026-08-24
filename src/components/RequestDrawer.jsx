@@ -12,6 +12,19 @@ export default function RequestDrawer({
   demande,
   knownDepartments = [],
   currentUserId,
+  events = [],
+  onUpdate,
+  onAssign,
+  onResolve,
+  onReopen,
+  onDelete,
+  onClose,
+}) {
+
+export default function RequestDrawer({
+  demande,
+  knownDepartments = [],
+  currentUserId,
   onUpdate,
   onAssign,
   onResolve,
@@ -397,8 +410,16 @@ export default function RequestDrawer({
           </>
         )}
 
-        {/* Message d'erreur */}
+                {/* Message d'erreur */}
         {error && <div className="ui-field__msg ui-field__msg--error">{error}</div>}
+      </div>
+
+      {/* Fil d'activité : messages + événements système */}
+      <div className="detail-edit-section">
+        <label className="ui-label" style={{ marginBottom: 6, display: 'block' }}>
+          Fil d'activité
+        </label>
+        <ActivityFeed events={events} />
       </div>
     </Drawer>
   )
