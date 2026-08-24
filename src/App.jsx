@@ -207,6 +207,7 @@ export default function App() {
             onOpen={setSelectedId}
             filter={filter}
             onFilterChange={setFilter}
+            currentUserId={session.user.id}
           />
         )}
 
