@@ -162,6 +162,22 @@ export default function App() {
     notify('Dossier pris en charge.')
   }
 
+  async function handleAddEvent(demandeId, content) {
+  const { data, error } = await supabase
+    .from('demande_events')
+    .insert({
+      demande_id: demandeId,
+      kind: 'message',
+      content,
+      author: session.user.id,
+      author_name: session.user.user_metadata?.name || session.user.email,
+    })
+    .select()
+    .single()
+  if (error) throw error
+  setEvents(prev => (prev.some(e => e.id === data.id) ? prev : [...prev, data]))
+}
+  
   async function handleResolve(id, pendingChanges) {
     const { data, error } = await supabase
       .from('demandes')
@@ -266,6 +282,7 @@ export default function App() {
           events={selectedEvents}
           onUpdate={handleUpdate}
           onAssign={handleAssign}
+          onAddEvent={handleAddEvent}
           onResolve={handleResolve}
           onReopen={handleReopen}
           onDelete={handleDelete}
