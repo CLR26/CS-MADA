@@ -69,6 +69,12 @@ export default function RequestRow({ demande, isSelected, onOpen }) {
             size="sm"
           />
         )}
+        {!isDone && !demande.assigned_to && (
+          <Badge
+            state="unassigned"
+            size="sm"
+          />
+        )}
       </div>
 
       {/* Métadonnées & Horodatage */}
