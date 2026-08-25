@@ -34,7 +34,7 @@ export default function RequestList({
       nous: active.filter(d => d.waiting_on === 'nous').length,
       client: active.filter(d => d.waiting_on === 'client').length,
       departement: active.filter(d => d.waiting_on === 'departement').length,
-      mine: active.filter(d => d.assigned_to === currentUserId).length,
+      mine: active.filter(d => d.created_by === currentUserId).length,
     }
   }, [demandes, currentUserId])
 
@@ -42,7 +42,7 @@ export default function RequestList({
     let list = demandes.filter(d => (showDone ? true : !d.resolved_at))
     
     if (filter === 'mine') {
-      list = list.filter(d => d.assigned_to === currentUserId)
+      list = list.filter(d => d.created_by === currentUserId)
     } else if (filter !== 'tous') {
       list = list.filter(d => d.waiting_on === filter)
     }

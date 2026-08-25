@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import Modal from './ui/Modal'
 import Input from './ui/Input'
+import Select from './ui/Select'
 import Button from './ui/Button'
+import { DEPARTMENTS } from '../lib/constants'
 import { IconAlertTriangle, IconUser, IconBuilding, IconPlus } from '../lib/icons'
 
-export default function NewRequestModal({ knownDepartments = [], onCreate, onClose }) {
+export default function NewRequestModal({ onCreate, onClose }) {
   const [clientRef, setClientRef] = useState('')
   const [objet, setObjet] = useState('')
   const [waitingOn, setWaitingOn] = useState('nous')
@@ -33,8 +35,8 @@ export default function NewRequestModal({ knownDepartments = [], onCreate, onClo
       setError('Le nom du client et l’objet de la demande sont obligatoires.')
       return
     }
-    if (waitingOn === 'departement' && !departement.trim()) {
-      setError('Veuillez préciser le département concerné.')
+    if (waitingOn === 'departement' && !departement) {
+      setError('Veuillez sélectionner le département concerné.')
       return
     }
 
@@ -45,7 +47,7 @@ export default function NewRequestModal({ knownDepartments = [], onCreate, onClo
         client_ref: clientRef.trim(),
         objet: objet.trim(),
         waiting_on: waitingOn,
-        departement: waitingOn === 'departement' ? departement.trim() : null,
+        departement: waitingOn === 'departement' ? departement : null,
       })
       onClose()
     } catch {
@@ -154,22 +156,16 @@ export default function NewRequestModal({ knownDepartments = [], onCreate, onClo
         </div>
 
         {waitingOn === 'departement' && (
-          <Input
+          <Select
             id="new-dept-field"
             label="Département concerné"
             value={departement}
             onChange={e => setDepartement(e.target.value)}
-            placeholder="Ex : Comptabilité, Groundops..."
-            list="new-dept-list"
+            options={DEPARTMENTS}
             required
             icon={IconBuilding}
           />
         )}
-        <datalist id="new-dept-list">
-          {knownDepartments.map(dep => (
-            <option key={dep} value={dep} />
-          ))}
-        </datalist>
 
         {error && <div className="ui-field__msg ui-field__msg--error" style={{ marginTop: 8 }}>{error}</div>}
       </form>

@@ -2,26 +2,22 @@ import { useEffect, useState } from 'react'
 import Drawer from './ui/Drawer'
 import Badge from './ui/Badge'
 import Button from './ui/Button'
-import TextArea from './ui/TextArea'
-import Input from './ui/Input'
+import Select from './ui/Select'
 import ActivityFeed from './ActivityFeed'
+import { DEPARTMENTS } from '../lib/constants'
 import { formatDateTime, formatDuration, isStale } from '../lib/time'
 import { IconCheck, IconRotateCcw, IconTrash, IconBuilding, IconUser, IconAlertTriangle } from '../lib/icons'
 
 export default function RequestDrawer({
   demande,
-  knownDepartments = [],
-  currentUserId,
   events = [],
   onUpdate,
-  onAssign,
   onAddEvent,
   onResolve,
   onReopen,
   onDelete,
   onClose,
 }) {
-  const [situation, setSituation] = useState(demande?.situation || '')
   const [waitingOn, setWaitingOn] = useState(demande?.waiting_on || 'nous')
   const [departement, setDepartement] = useState(demande?.departement || '')
   const [error, setError] = useState(null)
@@ -32,7 +28,6 @@ export default function RequestDrawer({
   // Mettre à jour l'état interne quand la demande sélectionnée change
   useEffect(() => {
     if (demande) {
-      setSituation(demande.situation || '')
       setWaitingOn(demande.waiting_on || 'nous')
       setDepartement(demande.departement || '')
       setError(null)
@@ -47,7 +42,6 @@ export default function RequestDrawer({
   const stale = !isResolved && isStale(demande.last_update_at)
 
   const dirty =
-    situation !== demande.situation ||
     waitingOn !== demande.waiting_on ||
     departement !== (demande.departement || '')
 
@@ -68,12 +62,8 @@ export default function RequestDrawer({
   }
 
   async function handleSave() {
-    if (!situation.trim()) {
-      setError('La situation actuelle ne peut pas être vide.')
-      return
-    }
-    if (waitingOn === 'departement' && !departement.trim()) {
-      setError('Veuillez préciser le département concerné.')
+    if (waitingOn === 'departement' && !departement) {
+      setError('Veuillez sélectionner le département concerné.')
       return
     }
 
@@ -81,9 +71,8 @@ export default function RequestDrawer({
     setError(null)
     try {
       await onUpdate(demande.id, {
-        situation: situation.trim(),
         waiting_on: waitingOn,
-        departement: waitingOn === 'departement' ? departement.trim() : null,
+        departement: waitingOn === 'departement' ? departement : null,
       })
       onClose()
     } catch {
@@ -93,12 +82,8 @@ export default function RequestDrawer({
   }
 
   async function handleResolveAction() {
-    if (dirty && !situation.trim()) {
-      setError('La situation ne peut pas être vide.')
-      return
-    }
-    if (waitingOn === 'departement' && !departement.trim()) {
-      setError('Veuillez préciser le département concerné.')
+    if (waitingOn === 'departement' && !departement) {
+      setError('Veuillez sélectionner le département concerné.')
       return
     }
 
@@ -109,27 +94,14 @@ export default function RequestDrawer({
         demande.id,
         dirty
           ? {
-              situation: situation.trim(),
               waiting_on: waitingOn,
-              departement: waitingOn === 'departement' ? departement.trim() : null,
+              departement: waitingOn === 'departement' ? departement : null,
             }
           : undefined
       )
       onClose()
     } catch {
       setError('Erreur lors de la clôture du dossier.')
-      setSaving(false)
-    }
-  }
-
-  async function handleAssignAction() {
-    setSaving(true)
-    setError(null)
-    try {
-      await onAssign(demande.id)
-    } catch {
-      setError('Erreur lors de la prise en charge.')
-    } finally {
       setSaving(false)
     }
   }
@@ -258,17 +230,6 @@ export default function RequestDrawer({
                   </Button>
                 ) : (
                   <>
-                    {demande.assigned_to !== currentUserId && (
-                      <Button
-                        variant="secondary"
-                        size="md"
-                        icon={IconUser}
-                        onClick={handleAssignAction}
-                        disabled={saving}
-                      >
-                        Prendre en charge
-                      </Button>
-                    )}
                     <Button
                       variant="secondary"
                       size="md"
@@ -298,11 +259,11 @@ export default function RequestDrawer({
       <div className="detail-card">
         <div className="detail-grid">
           <div>
-            <div className="detail-grid__item-label">Objet de la demande</div>
+            <div className="detail-grid__item-label">Objet</div>
             <div className="detail-grid__item-value">{demande.objet}</div>
           </div>
           <div>
-            <div className="detail-grid__item-label">Agent créateur</div>
+            <div className="detail-grid__item-label">Agent</div>
             <div className="detail-grid__item-value">{demande.created_by_name || 'Non spécifié'}</div>
           </div>
         </div>
@@ -319,99 +280,76 @@ export default function RequestDrawer({
         )}
       </div>
 
-      {/* Section situation & suivi */}
-      <div className="detail-edit-section">
-        {isResolved ? (
-          <div>
-            <label className="ui-label" style={{ marginBottom: 6, display: 'block' }}>
-              Situation au moment de la clôture
-            </label>
-            <div className="situation-readonly-box">{demande.situation}</div>
-          </div>
-        ) : (
-          <>
-            <TextArea
-              id="detail-situation"
-              label="Situation actuelle du dossier"
-              value={situation}
-              onChange={e => setSituation(e.target.value)}
-              placeholder="Décrivez les derniers échanges ou la nouvelle avancée..."
-              rows={4}
-              required
-              helper="Cette note sera partagée en direct avec les autres agents de l'équipe."
-            />
-
-            {/* Qui doit agir ensuite */}
-            <div className="ui-field">
-              <label className="ui-label">Qui doit agir ensuite ? *</label>
-              <div className="ui-choice-grid" role="group" aria-label="Qui doit agir ensuite">
-                <button
-                  type="button"
-                  className={`ui-choice-card ui-choice-card--nous ${waitingOn === 'nous' ? 'ui-choice-card--active' : ''}`}
-                  onClick={() => setWaitingOn('nous')}
-                  aria-pressed={waitingOn === 'nous'}
-                >
-                  <IconAlertTriangle size={18} />
-                  <span className="ui-choice-card__label">Nous</span>
-                  <span className="ui-choice-card__sublabel">Action équipe</span>
-                </button>
-
-                <button
-                  type="button"
-                  className={`ui-choice-card ui-choice-card--client ${waitingOn === 'client' ? 'ui-choice-card--active' : ''}`}
-                  onClick={() => setWaitingOn('client')}
-                  aria-pressed={waitingOn === 'client'}
-                >
-                  <IconUser size={18} />
-                  <span className="ui-choice-card__label">Client</span>
-                  <span className="ui-choice-card__sublabel">En attente retour</span>
-                </button>
-
-                <button
-                  type="button"
-                  className={`ui-choice-card ui-choice-card--dept ${waitingOn === 'departement' ? 'ui-choice-card--active' : ''}`}
-                  onClick={() => setWaitingOn('departement')}
-                  aria-pressed={waitingOn === 'departement'}
-                >
-                  <IconBuilding size={18} />
-                  <span className="ui-choice-card__label">Département</span>
-                  <span className="ui-choice-card__sublabel">Service tiers</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Si département sélectionné */}
-            {waitingOn === 'departement' && (
-              <Input
-                id="detail-dept-input"
-                label="Département concerné"
-                value={departement}
-                onChange={e => setDepartement(e.target.value)}
-                placeholder="Ex : Logistique, Comptabilité, Service Juridique..."
-                list="detail-known-departments"
-                required
-                icon={IconBuilding}
-              />
-            )}
-            <datalist id="detail-known-departments">
-              {knownDepartments.map(dep => (
-                <option key={dep} value={dep} />
-              ))}
-            </datalist>
-          </>
-        )}
-
-        {/* Message d'erreur */}
-        {error && <div className="ui-field__msg ui-field__msg--error">{error}</div>}
-      </div>
-
-      {/* Fil d'activité : messages + événements système */}
+      {/* Situation actuelle : chronologie opérationnelle unique */}
       <div className="detail-edit-section">
         <label className="ui-label" style={{ marginBottom: 6, display: 'block' }}>
-          Fil d'activité
+          Situation actuelle
         </label>
-        <ActivityFeed events={events} onSend={content => onAddEvent(demande.id, content)} />
+        <ActivityFeed
+          events={events}
+          onSend={isResolved ? undefined : (content, file) => onAddEvent(demande.id, content, file)}
+        />
+        {isResolved && error && <div className="ui-field__msg ui-field__msg--error">{error}</div>}
       </div>
+
+      {!isResolved && (
+        <div className="detail-edit-section">
+          {/* Qui doit agir ensuite */}
+          <div className="ui-field">
+            <label className="ui-label">Qui doit agir ensuite ? *</label>
+            <div className="ui-choice-grid" role="group" aria-label="Qui doit agir ensuite">
+              <button
+                type="button"
+                className={`ui-choice-card ui-choice-card--nous ${waitingOn === 'nous' ? 'ui-choice-card--active' : ''}`}
+                onClick={() => setWaitingOn('nous')}
+                aria-pressed={waitingOn === 'nous'}
+              >
+                <IconAlertTriangle size={18} />
+                <span className="ui-choice-card__label">Nous</span>
+                <span className="ui-choice-card__sublabel">Action équipe</span>
+              </button>
+
+              <button
+                type="button"
+                className={`ui-choice-card ui-choice-card--client ${waitingOn === 'client' ? 'ui-choice-card--active' : ''}`}
+                onClick={() => setWaitingOn('client')}
+                aria-pressed={waitingOn === 'client'}
+              >
+                <IconUser size={18} />
+                <span className="ui-choice-card__label">Client</span>
+                <span className="ui-choice-card__sublabel">En attente retour</span>
+              </button>
+
+              <button
+                type="button"
+                className={`ui-choice-card ui-choice-card--dept ${waitingOn === 'departement' ? 'ui-choice-card--active' : ''}`}
+                onClick={() => setWaitingOn('departement')}
+                aria-pressed={waitingOn === 'departement'}
+              >
+                <IconBuilding size={18} />
+                <span className="ui-choice-card__label">Département</span>
+                <span className="ui-choice-card__sublabel">Service tiers</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Si département sélectionné */}
+          {waitingOn === 'departement' && (
+            <Select
+              id="detail-dept-select"
+              label="Département concerné"
+              value={departement}
+              onChange={e => setDepartement(e.target.value)}
+              options={DEPARTMENTS}
+              required
+              icon={IconBuilding}
+            />
+          )}
+
+          {/* Message d'erreur */}
+          {error && <div className="ui-field__msg ui-field__msg--error">{error}</div>}
+        </div>
+      )}
     </Drawer>
   )
 }
