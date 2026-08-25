@@ -80,6 +80,7 @@ export default function ActivityFeed({ events = [], onSend }) {
         <div className="activity-feed__composer">
           <TextArea
             id="activity-feed-draft"
+            className="activity-feed__composer-textarea"
             value={draft}
             onChange={e => setDraft(e.target.value)}
             placeholder="Décrivez les derniers échanges ou la nouvelle avancée..."
