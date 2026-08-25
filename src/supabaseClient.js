@@ -30,7 +30,7 @@ const INITIAL_DEMO_DEMANDES = [
     objet: 'Colis non reçu',
     situation: 'Colis non reçu',
     waiting_on: 'departement',
-    departement: 'Logistique',
+    departement: 'GroundOps',
     created_by: 'agent-1',
     created_by_name: 'diary@suivi.com',
     created_at: new Date(Date.now() - 18 * 3600 * 1000).toISOString(),
@@ -56,7 +56,7 @@ const INITIAL_DEMO_DEMANDES = [
     objet: 'Demande de relevé mensuel',
     situation: 'Relevé envoyé par email. Confirmation reçue du client.',
     waiting_on: 'nous',
-    departement: 'Comptabilité',
+    departement: 'FinanceOps',
     created_by: 'agent-1',
     created_by_name: 'diary@suivi.com',
     created_at: new Date(Date.now() - 72 * 3600 * 1000).toISOString(),
@@ -76,6 +76,21 @@ function getStoredDemoData() {
 function saveDemoData(data) {
   try {
     localStorage.setItem('demo_demandes', JSON.stringify(data))
+  } catch (e) {}
+}
+
+// Table générique (ex: demande_events) : persistance locale simple, vide par défaut.
+function getStoredGenericTable(tableName) {
+  try {
+    const raw = localStorage.getItem(`demo_${tableName}`)
+    if (raw) return JSON.parse(raw)
+  } catch (e) {}
+  return []
+}
+
+function saveGenericTable(tableName, data) {
+  try {
+    localStorage.setItem(`demo_${tableName}`, JSON.stringify(data))
   } catch (e) {}
 }
 
@@ -127,14 +142,88 @@ function createMockClient() {
       },
     },
     from(tableName) {
-      if (tableName !== 'demandes') return { select: () => ({ data: [], error: null }) }
-      
+      if (tableName === 'demandes') {
+        return {
+          select() {
+            return {
+              order() {
+                return Promise.resolve({
+                  data: getStoredDemoData(),
+                  error: null,
+                })
+              },
+            }
+          },
+          insert(payload) {
+            return {
+              select() {
+                return {
+                  single: async () => {
+                    const items = getStoredDemoData()
+                    const newItem = {
+                      id: 'demo-' + Date.now(),
+                      created_at: new Date().toISOString(),
+                      last_update_at: new Date().toISOString(),
+                      resolved_at: null,
+                      ...payload,
+                    }
+                    const updated = [newItem, ...items]
+                    saveDemoData(updated)
+                    return { data: newItem, error: null }
+                  },
+                }
+              },
+            }
+          },
+          update(changes) {
+            return {
+              eq(col, val) {
+                return {
+                  select() {
+                    return {
+                      single: async () => {
+                        const items = getStoredDemoData()
+                        let modified = null
+                        const updated = items.map(item => {
+                          if (item[col] === val) {
+                            modified = {
+                              ...item,
+                              ...changes,
+                              last_update_at: new Date().toISOString(),
+                            }
+                            return modified
+                          }
+                          return item
+                        })
+                        saveDemoData(updated)
+                        return { data: modified, error: null }
+                      },
+                    }
+                  },
+                }
+              },
+            }
+          },
+          delete() {
+            return {
+              eq: async (col, val) => {
+                const items = getStoredDemoData()
+                const filtered = items.filter(item => item[col] !== val)
+                saveDemoData(filtered)
+                return { error: null }
+              },
+            }
+          },
+        }
+      }
+
+      // Table générique : couvre notamment demande_events (chronologie « Situation actuelle »).
       return {
         select() {
           return {
             order() {
               return Promise.resolve({
-                data: getStoredDemoData(),
+                data: getStoredGenericTable(tableName),
                 error: null,
               })
             },
@@ -145,62 +234,34 @@ function createMockClient() {
             select() {
               return {
                 single: async () => {
-                  const items = getStoredDemoData()
+                  const items = getStoredGenericTable(tableName)
                   const newItem = {
-                    id: 'demo-' + Date.now(),
+                    id: 'demo-' + Date.now() + '-' + Math.round(Math.random() * 1e6),
                     created_at: new Date().toISOString(),
-                    last_update_at: new Date().toISOString(),
-                    resolved_at: null,
                     ...payload,
                   }
-                  const updated = [newItem, ...items]
-                  saveDemoData(updated)
+                  const updated = [...items, newItem]
+                  saveGenericTable(tableName, updated)
                   return { data: newItem, error: null }
                 },
               }
             },
           }
         },
-        update(changes) {
-          return {
-            eq(col, val) {
-              return {
-                select() {
-                  return {
-                    single: async () => {
-                      const items = getStoredDemoData()
-                      let modified = null
-                      const updated = items.map(item => {
-                        if (item[col] === val) {
-                          modified = {
-                            ...item,
-                            ...changes,
-                            last_update_at: new Date().toISOString(),
-                          }
-                          return modified
-                        }
-                        return item
-                      })
-                      saveDemoData(updated)
-                      return { data: modified, error: null }
-                    },
-                  }
-                },
-              }
-            },
-          }
-        },
-        delete() {
-          return {
-            eq: async (col, val) => {
-              const items = getStoredDemoData()
-              const filtered = items.filter(item => item[col] !== val)
-              saveDemoData(filtered)
-              return { error: null }
-            },
-          }
-        },
       }
+    },
+    storage: {
+      from(bucket) {
+        return {
+          async upload(path) {
+            // Mode démo local : aucun fichier n'est réellement téléversé.
+            return { data: { path: `${bucket}/${path}` }, error: null }
+          },
+          getPublicUrl(path) {
+            return { data: { publicUrl: `#demo-attachment/${bucket}/${path}` } }
+          },
+        }
+      },
     },
     channel() {
       return {

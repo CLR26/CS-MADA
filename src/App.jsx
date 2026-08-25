@@ -109,11 +109,6 @@ export default function App() {
     return () => supabase.removeChannel(channel)
   }, [session])
 
-  const knownDepartments = useMemo(() => {
-    const set = new Set(demandes.map(d => d.departement).filter(Boolean))
-    return [...set].sort()
-  }, [demandes])
-
   const openRequestsCount = useMemo(
     () => demandes.filter(d => !d.resolved_at).length,
     [demandes]
@@ -147,36 +142,51 @@ export default function App() {
     notify('Modifications enregistrées.')
   }
 
-  async function handleAssign(id) {
+  async function handleAddEvent(demandeId, content, file) {
+    let attachment_url = null
+    let attachment_name = null
+
+    if (file) {
+      const path = `${demandeId}/${Date.now()}-${file.name}`
+      const { error: uploadError } = await supabase.storage
+        .from('demande-attachments')
+        .upload(path, file)
+      if (uploadError) throw uploadError
+      const { data: publicData } = supabase.storage
+        .from('demande-attachments')
+        .getPublicUrl(path)
+      attachment_url = publicData.publicUrl
+      attachment_name = file.name
+    }
+
     const { data, error } = await supabase
-      .from('demandes')
-      .update({
-        assigned_to: session.user.id,
-        assigned_to_name: session.user.user_metadata?.name || session.user.email,
+      .from('demande_events')
+      .insert({
+        demande_id: demandeId,
+        kind: 'situation',
+        content,
+        attachment_url,
+        attachment_name,
+        author: session.user.id,
+        author_name: session.user.user_metadata?.name || session.user.email,
       })
-      .eq('id', id)
       .select()
       .single()
     if (error) throw error
-    setDemandes(prev => prev.map(d => (d.id === id ? data : d)))
-    notify('Dossier pris en charge.')
-  }
+    setEvents(prev => (prev.some(e => e.id === data.id) ? prev : [...prev, data]))
 
-  async function handleAddEvent(demandeId, content) {
-  const { data, error } = await supabase
-    .from('demande_events')
-    .insert({
-      demande_id: demandeId,
-      kind: 'message',
-      content,
-      author: session.user.id,
-      author_name: session.user.user_metadata?.name || session.user.email,
-    })
-    .select()
-    .single()
-  if (error) throw error
-  setEvents(prev => (prev.some(e => e.id === data.id) ? prev : [...prev, data]))
-}
+    // La situation la plus récente reste dénormalisée sur le dossier
+    // (recherche, liste, dashboard) ; last_update_at suit via le trigger existant.
+    const { data: updated, error: updateError } = await supabase
+      .from('demandes')
+      .update({ situation: content })
+      .eq('id', demandeId)
+      .select()
+      .single()
+    if (!updateError && updated) {
+      setDemandes(prev => prev.map(d => (d.id === demandeId ? updated : d)))
+    }
+  }
   
   async function handleResolve(id, pendingChanges) {
     const { data, error } = await supabase
@@ -268,7 +278,6 @@ export default function App() {
 
       {showNewModal && (
         <NewRequestModal
-          knownDepartments={knownDepartments}
           onCreate={handleCreate}
           onClose={() => setShowNewModal(false)}
         />
@@ -277,11 +286,8 @@ export default function App() {
       {selected && (
         <RequestDrawer
           demande={selected}
-          knownDepartments={knownDepartments}
-          currentUserId={session.user.id}
           events={selectedEvents}
           onUpdate={handleUpdate}
-          onAssign={handleAssign}
           onAddEvent={handleAddEvent}
           onResolve={handleResolve}
           onReopen={handleReopen}

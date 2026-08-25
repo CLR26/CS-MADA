@@ -368,6 +368,17 @@
   line-height: 1.5;
 }
 
+.ui-select {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 16px;
+  padding-right: 34px;
+}
+
 .ui-field--error .ui-input, .ui-field--error .ui-textarea {
   border-color: var(--stale-solid);
   box-shadow: 0 0 0 3px var(--stale-bg);
@@ -1008,6 +1019,60 @@
   flex-direction: column;
   gap: var(--space-2);
   margin-top: var(--space-3);
+}
+
+.activity-feed__composer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.activity-feed__attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-secondary);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  max-width: 220px;
+}
+
+.activity-feed__attachment-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-feed__attachment-chip button {
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  display: inline-flex;
+  padding: 0;
+}
+
+.activity-feed__attachment-chip button:hover {
+  color: var(--stale-solid);
+}
+
+.activity-feed__message-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand-accent);
+  text-decoration: none;
+}
+
+.activity-feed__message-attachment:hover {
+  text-decoration: underline;
 }
 
 /* ==========================================================================
