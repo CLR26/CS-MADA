@@ -91,9 +91,13 @@ export default function App() {
       })
     }
     channel.on('postgres_changes', { event: '*', schema: 'public', table: 'agents' }, loadAgents)
-      .subscribe()
+      .subscribe((status, error) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          notify(error?.message || 'La synchronisation temps réel est momentanément indisponible.', 'error')
+        }
+      })
     return () => supabase.removeChannel(channel)
-  }, [session, selectedId, loadWorkspace, loadAgents])
+  }, [session, selectedId, loadWorkspace, loadAgents, notify])
 
   useEffect(() => {
     let ignore = false
@@ -101,12 +105,13 @@ export default function App() {
     if (!selectedId) return
     supabase.from('demande_events').select('*').eq('demande_id', selectedId).order('created_at', { ascending: true })
       .then(({ data, error }) => {
-        if (ignore || error) return
+        if (ignore) return
+        if (error) { notify(`Impossible de charger la timeline : ${error.message}`, 'error'); return }
         setEvents(current => [...new Map([...(data || []), ...current.filter(event => event.demande_id === selectedId)].map(event => [event.id, event])).values()]
           .sort((a, b) => a.created_at.localeCompare(b.created_at)))
       })
     return () => { ignore = true }
-  }, [selectedId])
+  }, [selectedId, notify])
 
   useEffect(() => {
     if (!toast) return

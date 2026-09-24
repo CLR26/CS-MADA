@@ -49,6 +49,10 @@ alter table public.demandes add column if not exists created_at timestamptz defa
 alter table public.demandes add column if not exists updated_at timestamptz default now();
 alter table public.demandes add column if not exists resolved_at timestamptz;
 
+-- Remove the former trigger before migrating/dropping the fields it references.
+drop trigger if exists trg_demandes_last_update on public.demandes;
+drop function if exists public.set_last_update_at();
+
 -- Carry forward values from the former model without deleting any requests.
 do $$ begin
   if exists (select 1 from information_schema.columns where table_schema='public' and table_name='demandes' and column_name='channel') then
