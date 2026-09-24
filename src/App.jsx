@@ -4,7 +4,7 @@ import Login from './components/Login'
 import SpreadsheetGrid from './components/SpreadsheetGrid'
 import DetailPanel from './components/DetailPanel'
 import NewQueryModal from './components/NewQueryModal'
-import Toast from './components/ui/Toast'
+import NotificationCenter from './components/NotificationCenter'
 import { ACTIVE_STATUSES, STATUSES, STAGES } from './lib/constants'
 import { compareTimestamps, formatDateTime, getRequestDueState } from './lib/dates'
 import { supabaseMessage } from './lib/errors'
@@ -14,6 +14,12 @@ const mergeRequest = (rows, incoming) => {
   if (!current) return [incoming, ...rows]
   if (compareTimestamps(current.updated_at, incoming.updated_at) > 0) return rows
   return rows.map(row => row.id === incoming.id ? incoming : row)
+}
+
+const vapidBytes = value => {
+  const padding = '='.repeat((4 - value.length % 4) % 4)
+  const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/')
+  return Uint8Array.from(atob(base64), character => character.charCodeAt(0))
 }
 
 export default function App() {
@@ -37,11 +43,70 @@ export default function App() {
   const [savingIds, setSavingIds] = useState(() => new Set())
   const savingIdsRef = useRef(new Set())
   const [now, setNow] = useState(() => new Date())
+  const [notifications, setNotifications] = useState([])
+  const [notificationError, setNotificationError] = useState('')
+  const [showNotifications, setShowNotifications] = useState(false)
+  const [preferences, setPreferences] = useState({})
+  const [soundOn, setSoundOn] = useState(() => localStorage.getItem('cs-mada-notification-sound') === 'true')
+  const [browserState, setBrowserState] = useState(() => !('Notification' in window) ? 'Navigateur incompatible' : Notification.permission === 'granted' ? 'Activées' : Notification.permission === 'denied' ? 'Permission refusée' : 'Désactivées')
+  const notifiedRef = useRef(new Set())
 
   const notify = useCallback((message, type = 'success') => setToast({ message, type, key: Date.now() }), [])
   const selected = demandes.find(d => d.id === selectedId) || null
   const activeAgents = agents.filter(a => a.active)
   const currentAgent = agents.find(a => a.user_id === session?.user?.id) || null
+
+  const announce = useCallback(item => {
+    const preferenceKey = ({ NEW_REQUEST: 'new_requests', ASSIGNED_TO_ME: 'assignments', OVERDUE: 'overdue', DUE_SOON: 'due_soon', NEW_OPERATION_REPLY: 'operation_replies' })[item.type]
+    setNotifications(rows => rows.some(row => row.id === item.id) ? rows : [item, ...rows])
+    if (item.read_at) return
+    if (item.priority === 'high' || item.priority === 'critical') {
+      if (preferences[preferenceKey] !== false) setToast({ message: `${item.title} — ${item.body}`, type: 'warning', key: Date.now(), requestId: item.request_id })
+      if (soundOn && preferences[preferenceKey] !== false) {
+        try {
+          const Context = window.AudioContext || window.webkitAudioContext
+          if (Context) {
+            const context = new Context()
+            const oscillator = context.createOscillator()
+            const gain = context.createGain()
+            oscillator.frequency.value = 660
+            gain.gain.value = 0.025
+            oscillator.connect(gain); gain.connect(context.destination)
+            oscillator.start(); oscillator.stop(context.currentTime + 0.11)
+            oscillator.onended = () => context.close()
+          }
+        } catch {}
+      }
+      if (preferences[preferenceKey] !== false && 'Notification' in window && Notification.permission === 'granted') { try { new Notification(item.title, { body: item.body, tag: item.deduplication_key || item.id }) } catch {} }
+    }
+  }, [soundOn, preferences])
+
+  const markRead = useCallback(async item => {
+    const readAt = new Date().toISOString()
+    setNotifications(rows => rows.map(row => row.id === item.id ? { ...row, read_at: readAt } : row))
+    await supabase.from('notifications').update({ read_at: readAt }).eq('id', item.id)
+  }, [])
+
+  const savePreferences = useCallback(async next => {
+    setPreferences(next)
+    if (currentAgent) await supabase.from('notification_preferences').upsert({ agent_id: currentAgent.id, preferences: next, updated_at: new Date().toISOString() }, { onConflict: 'agent_id' })
+  }, [currentAgent])
+
+  const enableBrowser = useCallback(async () => {
+    if (!('Notification' in window)) { setBrowserState('Navigateur incompatible'); return }
+    if (location.protocol !== 'https:' && location.hostname !== 'localhost') { setBrowserState('HTTPS requis'); return }
+    if (Notification.permission === 'denied') { setBrowserState('Permission refusée dans les réglages du navigateur'); return }
+    const result = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission()
+    setBrowserState(result === 'granted' ? 'Activées' : result === 'denied' ? 'Permission refusée' : 'Désactivées')
+    const publicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY
+    if (result === 'granted' && publicKey && currentAgent && 'serviceWorker' in navigator) {
+      try {
+        const registration = await navigator.serviceWorker.ready
+        const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidBytes(publicKey) })
+        await supabase.from('webpush_subscriptions').upsert({ agent_id: currentAgent.id, endpoint: subscription.endpoint, subscription: subscription.toJSON() }, { onConflict: 'agent_id,endpoint' })
+      } catch { setBrowserState('Activées · push distant à configurer') }
+    }
+  }, [currentAgent])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data, error }) => { if (error) setLoadError(supabaseMessage(error, 'vérifier la session')); setSession(data?.session ?? null) }).catch(error => { setLoadError(supabaseMessage(error, 'vérifier la session')); setSession(null) })
@@ -82,7 +147,30 @@ export default function App() {
 
   useEffect(() => {
     if (!session) return
+    if (!currentAgent) {
+      if (agents.length) setNotificationError('Aucun agent CS-MADA ne correspond à ce compte connecté. Vérifie la liaison agents.user_id ↔ auth.users.id.')
+      return
+    }
+    let live = true
+    Promise.all([
+      supabase.from('notifications').select('*').eq('recipient_id', currentAgent.id).order('created_at', { ascending: false }).limit(200),
+      supabase.from('notification_preferences').select('preferences').eq('agent_id', currentAgent.id).maybeSingle(),
+    ]).then(([result, prefs]) => {
+      if (!live) return
+      if (!result.error) { setNotifications(result.data || []); setNotificationError('') }
+      else setNotificationError(['42P01', 'PGRST205'].includes(result.error.code)
+        ? 'Le centre est prêt, mais les tables de notifications ne sont pas encore installées dans Supabase. Applique la migration workspace.'
+        : `Notifications indisponibles : ${result.error.message}`)
+      if (!prefs.error && prefs.data?.preferences) setPreferences(prefs.data.preferences)
+    })
+    return () => { live = false }
+  }, [session, currentAgent, agents.length])
+
+  useEffect(() => {
+    if (!session) return
     const channel = supabase.channel('workspace-live')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `recipient_id=eq.${currentAgent?.id}` }, payload => announce(payload.new))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'notifications', filter: `recipient_id=eq.${currentAgent?.id}` }, payload => setNotifications(rows => rows.map(row => row.id === payload.new.id ? payload.new : row)))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'demandes' }, payload => {
         if (payload.eventType === 'DELETE') setDemandes(rows => rows.filter(row => row.id !== payload.old.id))
         else setDemandes(rows => mergeRequest(rows, payload.new))
@@ -101,7 +189,7 @@ export default function App() {
         }
       })
     return () => supabase.removeChannel(channel)
-  }, [session, selectedId, loadAgents, notify])
+  }, [session, selectedId, loadAgents, notify, currentAgent, announce])
 
   useEffect(() => {
     let ignore = false
@@ -120,13 +208,57 @@ export default function App() {
 
   useEffect(() => {
     if (!toast) return
-    const timer = setTimeout(() => setToast(null), 2800)
+    const timer = setTimeout(() => setToast(null), toast.type === 'warning' ? 9000 : 2800)
     return () => clearTimeout(timer)
   }, [toast])
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 60_000)
     return () => clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    if (!currentAgent) return
+    for (const request of demandes) {
+      if (request.status === 'Resolved' || !request.customer_feedback_due_at || ![request.responsible_id, request.owner_id].includes(currentAgent.id)) continue
+      const due = new Date(request.customer_feedback_due_at)
+      const diff = due.getTime() - now.getTime()
+      const type = diff < 0 ? 'OVERDUE' : diff <= 30 * 60_000 ? 'DUE_SOON' : null
+      if (!type) continue
+      const key = `${type}:${request.id}:${request.customer_feedback_due_at}:${currentAgent.id}`
+      if (notifiedRef.current.has(key)) continue
+      notifiedRef.current.add(key)
+      const minutes = Math.max(1, Math.round(Math.abs(diff) / 60_000))
+      const values = type === 'OVERDUE'
+        ? { title: 'Demande en retard', body: `Feedback client dépassé de ${minutes} min`, priority: 'high' }
+        : { title: 'Échéance imminente', body: `Feedback client attendu dans ${minutes} min`, priority: 'normal' }
+      supabase.from('notifications').upsert({ recipient_id: currentAgent.id, request_id: request.id, type, ...values, deduplication_key: key }, { onConflict: 'recipient_id,deduplication_key', ignoreDuplicates: true }).select().maybeSingle().then(({ data }) => { if (data) announce(data) })
+    }
+  }, [currentAgent, demandes, now, announce])
+
+  useEffect(() => {
+    if (!currentAgent) return
+    const resolvedIds = demandes.filter(request => request.status === 'Resolved').map(request => request.id)
+    if (!resolvedIds.length) return
+    const stale = notifications.filter(item => resolvedIds.includes(item.request_id) && !item.read_at && ['OVERDUE', 'DUE_SOON', 'ACTION_REQUIRED'].includes(item.type))
+    if (!stale.length) return
+    const readAt = new Date().toISOString()
+    setNotifications(rows => rows.map(item => stale.some(done => done.id === item.id) ? { ...item, read_at: readAt } : item))
+    supabase.from('notifications').update({ read_at: readAt }).in('id', stale.map(item => item.id))
+  }, [currentAgent, demandes, notifications])
+
+  useEffect(() => {
+    const unread = notifications.filter(item => !item.read_at)
+    const overdueCount = unread.filter(item => item.type === 'OVERDUE').length
+    document.title = unread.length ? `(${overdueCount ? `${overdueCount} ` : ''}${overdueCount ? 'demande en retard' : unread.length}) CS-MADA` : 'CS-MADA'
+    return () => { document.title = 'CS-MADA' }
+  }, [notifications])
+
+  useEffect(() => { localStorage.setItem('cs-mada-notification-sound', String(soundOn)) }, [soundOn])
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator) || (location.protocol !== 'https:' && location.hostname !== 'localhost')) return
+    navigator.serviceWorker.register('/sw.js').catch(() => {})
   }, [])
 
   const createEvent = useCallback(async (requestId, { kind, content, channel = 'Internal', metadata = null }) => {
@@ -172,6 +304,18 @@ export default function App() {
     setShowNewModal(false)
     if (timelineSaved) notify('Demande créée')
   }, [currentAgent, createEvent, notify])
+
+  const deleteQuery = useCallback(async request => {
+    const reference = request.tracking_number || request.id.slice(0, 8)
+    if (!window.confirm(`Supprimer définitivement le dossier #${reference} (${request.customer_name}) et sa timeline ?`)) return false
+    const { error } = await supabase.from('demandes').delete().eq('id', request.id)
+    if (error) { notify(supabaseMessage(error, 'supprimer le dossier'), 'error'); return false }
+    setDemandes(rows => rows.filter(row => row.id !== request.id))
+    setEvents(rows => rows.filter(row => row.demande_id !== request.id))
+    setSelectedId(null)
+    notify(`Dossier #${reference} supprimé`)
+    return true
+  }, [notify])
 
   const updateQuery = useCallback(async (id, changes) => {
     if (savingIdsRef.current.has(id)) return null
@@ -247,6 +391,7 @@ export default function App() {
     <header className="app-header">
       <div className="brand"><span className="brand-mark">C</span><span>CS-MADA</span><span className="brand-context">Workspace</span></div>
       <div className="header-right"><label className="search-wrap"><span>⌕</span><input className="search-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher client, tracking…" /></label>
+        <button className="notification-bell" onClick={() => setShowNotifications(value => !value)} aria-label={`Notifications ${notifications.filter(item => !item.read_at).length || ''}`} title="Notifications"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg><span className="notification-button-label">Notifications</span>{notifications.filter(item => !item.read_at).length > 0 && <span className="notification-count">{Math.min(99, notifications.filter(item => !item.read_at).length)}{notifications.filter(item => !item.read_at).length > 99 ? '+' : ''}</span>}</button>
         <button className="btn-primary" onClick={() => setShowNewModal(true)}>＋ Nouvelle demande</button>
         <button className="btn-ghost-logout" onClick={() => supabase.auth.signOut()} title="Déconnexion">Déconnexion</button></div>
     </header>
@@ -269,10 +414,11 @@ export default function App() {
       {loadError && <div className="workspace-error">{loadError} <button onClick={loadWorkspace}>Réessayer</button></div>}
       <section className={`workspace-split ${selected ? 'has-panel' : ''}`}>
         <div className="workspace-main"><SpreadsheetGrid demandes={visible} selectedId={selectedId} onSelectQuery={setSelectedId} agents={agents} loading={loading} savingIds={savingIds} now={now} onStatusChange={updateQuery} /></div>
-        {selected && <DetailPanel key={selected.id} demande={selected} events={events} agents={agents} now={now} saving={savingIds.has(selected.id)} onUpdate={updateQuery} onAddEvent={addEvent} onClose={() => setSelectedId(null)} />}
+        {selected && <DetailPanel key={selected.id} demande={selected} events={events} agents={agents} now={now} saving={savingIds.has(selected.id)} onUpdate={updateQuery} onAddEvent={addEvent} onDelete={deleteQuery} onClose={() => setSelectedId(null)} />}
       </section>
     </main>
     {showNewModal && <NewQueryModal agents={activeAgents} onCreate={createQuery} onClose={() => setShowNewModal(false)} />}
-    {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+    {showNotifications && <NotificationCenter notifications={notifications} requests={demandes} setupError={notificationError} onOpen={setSelectedId} onRead={markRead} onReadAll={async () => { const readAt = new Date().toISOString(); setNotifications(rows => rows.map(item => item.read_at ? item : { ...item, read_at: readAt })); if (currentAgent) await supabase.from('notifications').update({ read_at: readAt }).eq('recipient_id', currentAgent.id).is('read_at', null) }} onClose={() => setShowNotifications(false)} preferences={preferences} onPreferences={savePreferences} onEnableBrowser={enableBrowser} browserState={browserState} soundOn={soundOn} onSoundChange={setSoundOn} />}
+    {toast && <div className="attention-toast"><div><b>{toast.message.split(' — ')[0]}</b><span>{toast.message.split(' — ').slice(1).join(' — ')}</span></div>{toast.requestId && <button onClick={() => { setSelectedId(toast.requestId); setToast(null) }}>Ouvrir la demande</button>}<button onClick={() => setToast(null)} aria-label="Fermer">×</button></div>}
   </div>
 }

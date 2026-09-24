@@ -124,6 +124,138 @@ create table if not exists public.demande_events (
   metadata jsonb,
   created_at timestamptz not null default now()
 );
+
+-- Durable, per-agent attention signals. Browser push can later consume this table
+-- through a server-side Edge Function without exposing VAPID secrets to clients.
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  recipient_id uuid not null references public.agents(id) on delete cascade,
+  request_id uuid references public.demandes(id) on delete cascade,
+  type text not null check (type in ('NEW_REQUEST','ASSIGNED_TO_ME','TRANSFERRED_TO_MY_QUEUE','STATUS_CHANGED','STAGE_CHANGED','DUE_SOON','OVERDUE','NEW_OPERATION_REPLY','ACTION_REQUIRED')),
+  priority text not null default 'normal' check (priority in ('low','normal','high','critical')),
+  title text not null,
+  body text not null,
+  created_at timestamptz not null default now(),
+  read_at timestamptz,
+  deduplication_key text,
+  unique (recipient_id, deduplication_key)
+);
+create index if not exists idx_notifications_recipient_unread on public.notifications (recipient_id, created_at desc) where read_at is null;
+create table if not exists public.notification_preferences (
+  agent_id uuid primary key references public.agents(id) on delete cascade,
+  preferences jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+create table if not exists public.webpush_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  agent_id uuid not null references public.agents(id) on delete cascade,
+  endpoint text not null,
+  subscription jsonb not null,
+  created_at timestamptz not null default now(),
+  unique (agent_id, endpoint)
+);
+
+create or replace function public.notify_request_change()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  target public.agents%rowtype;
+  notification_type text;
+  notification_title text;
+  notification_body text;
+  priority_value text := 'normal';
+  key_value text;
+  request_label text;
+begin
+  request_label := coalesce(nullif(new.tracking_number, ''), left(new.id::text, 8));
+  if tg_op = 'INSERT' then
+    for target in
+      select a.* from public.agents a where a.active and (
+        (new.current_stage = 'CS WhatsApp' and a.primary_channel = 'WhatsApp') or
+        (new.current_stage = 'CS E-mail' and a.primary_channel = 'E-mail') or
+        (new.current_stage = 'Opérations' and a.id = new.responsible_id))
+        and a.id is distinct from new.owner_id
+    loop
+      insert into public.notifications(recipient_id, request_id, type, priority, title, body, deduplication_key)
+      values (target.id, new.id, 'NEW_REQUEST', 'normal', 'Nouvelle demande ' || new.initial_channel,
+        'Nouvelle demande — #' || request_label, 'NEW_REQUEST:' || new.id::text || ':' || target.id::text)
+      on conflict (recipient_id, deduplication_key) do nothing;
+    end loop;
+    if new.responsible_id is not null and new.responsible_id is distinct from new.owner_id then
+      insert into public.notifications(recipient_id, request_id, type, priority, title, body, deduplication_key)
+      values (new.responsible_id, new.id, 'ASSIGNED_TO_ME', 'normal', 'Demande assignée', 'Tu es responsable de #' || request_label,
+        'ASSIGNED_TO_ME:' || new.id::text || ':' || new.responsible_id::text)
+      on conflict (recipient_id, deduplication_key) do nothing;
+    end if;
+    if nullif(trim(new.next_action), '') is not null and new.responsible_id is not null then
+      insert into public.notifications(recipient_id, request_id, type, priority, title, body, deduplication_key)
+      values (new.responsible_id, new.id, 'ACTION_REQUIRED', 'normal', 'Action requise', new.next_action,
+        'ACTION_REQUIRED:' || new.id::text || ':' || md5(new.next_action) || ':' || new.responsible_id::text)
+      on conflict (recipient_id, deduplication_key) do nothing;
+    end if;
+    return new;
+  end if;
+
+  if new.responsible_id is distinct from old.responsible_id and new.responsible_id is not null then
+    insert into public.notifications(recipient_id, request_id, type, priority, title, body, deduplication_key)
+    values (new.responsible_id, new.id, 'ASSIGNED_TO_ME', 'normal', 'Demande assignée', 'Tu es maintenant responsable de #' || request_label,
+      'ASSIGNED_TO_ME:' || new.id::text || ':' || new.responsible_id::text || ':' || extract(epoch from now())::bigint)
+    on conflict (recipient_id, deduplication_key) do nothing;
+  end if;
+  if new.current_stage is distinct from old.current_stage then
+    for target in select a.* from public.agents a where a.active and (
+      (new.current_stage = 'CS WhatsApp' and a.primary_channel = 'WhatsApp') or
+      (new.current_stage = 'CS E-mail' and a.primary_channel = 'E-mail') or
+      (new.current_stage = 'Opérations' and a.id = new.responsible_id))
+    loop
+      if target.id is distinct from new.owner_id then
+        notification_type := case when new.current_stage = 'Opérations' then 'TRANSFERRED_TO_MY_QUEUE' else 'STAGE_CHANGED' end;
+        insert into public.notifications(recipient_id, request_id, type, priority, title, body, deduplication_key)
+        values (target.id, new.id, notification_type, 'normal', 'Nouvelle demande dans ' || new.current_stage,
+          'Nouvelle demande dans ' || new.current_stage || ' — #' || request_label,
+          'STAGE_CHANGED:' || new.id::text || ':' || new.current_stage || ':' || target.id::text)
+        on conflict (recipient_id, deduplication_key) do nothing;
+      end if;
+    end loop;
+  end if;
+  if new.status is distinct from old.status and new.status <> 'Resolved' then
+    for target in select distinct a.* from public.agents a where a.id in (new.responsible_id, new.owner_id) and a.active
+    loop
+      insert into public.notifications(recipient_id, request_id, type, priority, title, body, deduplication_key)
+      values (target.id, new.id, 'STATUS_CHANGED', 'normal', 'Statut modifié', '#' || request_label || ' est maintenant « ' || new.status || ' »',
+        'STATUS_CHANGED:' || new.id::text || ':' || coalesce(new.updated_at::text, now()::text) || ':' || target.id::text)
+      on conflict (recipient_id, deduplication_key) do nothing;
+    end loop;
+  end if;
+  if new.next_action is distinct from old.next_action and nullif(trim(new.next_action), '') is not null and new.responsible_id is not null then
+    insert into public.notifications(recipient_id, request_id, type, priority, title, body, deduplication_key)
+    values (new.responsible_id, new.id, 'ACTION_REQUIRED', 'normal', 'Action requise', new.next_action,
+      'ACTION_REQUIRED:' || new.id::text || ':' || md5(new.next_action) || ':' || new.responsible_id::text)
+    on conflict (recipient_id, deduplication_key) do nothing;
+  end if;
+  return new;
+end $$;
+drop trigger if exists demandes_notification_change on public.demandes;
+create trigger demandes_notification_change after insert or update of responsible_id, current_stage, status, next_action on public.demandes for each row execute function public.notify_request_change();
+
+create or replace function public.notify_operation_reply()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare req public.demandes%rowtype; target_id uuid; author_role text;
+begin
+  if new.channel not in ('Internal', 'System') or new.author_id is null then return new; end if;
+  select * into req from public.demandes where id = new.demande_id;
+  select a.role into author_role from public.agents a where a.id = new.author_id;
+  if coalesce(position('Opérations' in author_role) > 0, false) = false
+    and coalesce((new.metadata->>'origin') = 'operations', false) = false then return new; end if;
+  target_id := coalesce(req.owner_id, req.responsible_id);
+  if target_id is not null and target_id is distinct from new.author_id then
+    insert into public.notifications(recipient_id, request_id, type, priority, title, body, deduplication_key)
+    values (target_id, req.id, 'NEW_OPERATION_REPLY', 'normal', 'Réponse des opérations', 'Les opérations ont répondu — #' || coalesce(nullif(req.tracking_number,''), left(req.id::text,8)), 'NEW_OPERATION_REPLY:' || new.id::text)
+    on conflict (recipient_id, deduplication_key) do nothing;
+  end if;
+  return new;
+end $$;
+drop trigger if exists demande_event_notify_operations on public.demande_events;
+create trigger demande_event_notify_operations after insert on public.demande_events for each row execute function public.notify_operation_reply();
 alter table public.demande_events add column if not exists author_id uuid references public.agents(id) on delete set null;
 -- Older installations may have created the timeline without a channel field.
 alter table public.demande_events add column if not exists channel text not null default 'Internal';
@@ -189,6 +321,9 @@ create trigger demande_event_bump_updated_at after insert on public.demande_even
 alter table public.agents enable row level security;
 alter table public.demandes enable row level security;
 alter table public.demande_events enable row level security;
+alter table public.notifications enable row level security;
+alter table public.notification_preferences enable row level security;
+alter table public.webpush_subscriptions enable row level security;
 drop policy if exists "Authenticated users read all queries" on public.demandes;
 drop policy if exists "Authenticated users insert queries" on public.demandes;
 drop policy if exists "Authenticated users update queries" on public.demandes;
@@ -201,6 +336,16 @@ create policy agents_read on public.agents for select to authenticated using (tr
 create policy agents_manage on public.agents for all to authenticated using (true) with check (true);
 create policy demandes_all_authenticated on public.demandes for all to authenticated using (true) with check (true);
 create policy events_all_authenticated on public.demande_events for all to authenticated using (true) with check (true);
+drop policy if exists notifications_read_own on public.notifications;
+drop policy if exists notifications_update_own on public.notifications;
+drop policy if exists notifications_insert_own on public.notifications;
+create policy notifications_read_own on public.notifications for select to authenticated using (exists (select 1 from public.agents a where a.id = recipient_id and a.user_id = auth.uid()));
+create policy notifications_update_own on public.notifications for update to authenticated using (exists (select 1 from public.agents a where a.id = recipient_id and a.user_id = auth.uid())) with check (exists (select 1 from public.agents a where a.id = recipient_id and a.user_id = auth.uid()));
+create policy notifications_insert_own on public.notifications for insert to authenticated with check (exists (select 1 from public.agents a where a.id = recipient_id and a.user_id = auth.uid()));
+drop policy if exists notification_preferences_own on public.notification_preferences;
+create policy notification_preferences_own on public.notification_preferences for all to authenticated using (exists (select 1 from public.agents a where a.id = agent_id and a.user_id = auth.uid())) with check (exists (select 1 from public.agents a where a.id = agent_id and a.user_id = auth.uid()));
+drop policy if exists webpush_subscriptions_own on public.webpush_subscriptions;
+create policy webpush_subscriptions_own on public.webpush_subscriptions for all to authenticated using (exists (select 1 from public.agents a where a.id = agent_id and a.user_id = auth.uid())) with check (exists (select 1 from public.agents a where a.id = agent_id and a.user_id = auth.uid()));
 
 -- Legacy duplicates are removed only after values have been copied to the new model.
 alter table public.demandes drop column if exists client_ref;
@@ -223,4 +368,7 @@ do $$ begin
 exception when duplicate_object then null; when undefined_object then null; end $$;
 do $$ begin
   alter publication supabase_realtime add table public.agents;
+exception when duplicate_object then null; when undefined_object then null; end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.notifications;
 exception when duplicate_object then null; when undefined_object then null; end $$;

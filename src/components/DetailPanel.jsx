@@ -9,7 +9,7 @@ const eventTitle = event => ({
   due_date_changed: 'Échéance client modifiée', note: 'Note / échange', field_changed: 'Demande mise à jour',
 }[event.kind] || 'Activité')
 
-export default function DetailPanel({ demande, events = [], agents = [], onUpdate, onAddEvent, onClose, saving = false, now = new Date() }) {
+export default function DetailPanel({ demande, events = [], agents = [], onUpdate, onAddEvent, onDelete, onClose, saving = false, now = new Date() }) {
   const [content, setContent] = useState('')
   const [channel, setChannel] = useState('Internal')
   const [savingEvent, setSavingEvent] = useState(false)
@@ -61,7 +61,7 @@ export default function DetailPanel({ demande, events = [], agents = [], onUpdat
           <h2 className="panel-name">{demande.customer_name || 'Client inconnu'}</h2>
           <div className="panel-track-no">{demande.tracking_number || 'Sans numéro de tracking'}</div>
         </div>
-        <button type="button" className="panel-close-btn" onClick={onClose} aria-label="Fermer">×</button>
+        <div className="panel-header-actions"><button type="button" className="panel-delete-btn" onClick={() => onDelete?.(demande)} aria-label="Supprimer ce dossier">Supprimer</button><button type="button" className="panel-close-btn" onClick={onClose} aria-label="Fermer">×</button></div>
       </div>
       {(demande.phone || demande.email) && <div className="panel-contact">{demande.phone && <span>{demande.phone}</span>}{demande.email && <span>{demande.email}</span>}</div>}
     </div>
