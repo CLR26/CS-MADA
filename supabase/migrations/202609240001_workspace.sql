@@ -124,12 +124,9 @@ alter table public.demande_events add column if not exists author_id uuid refere
 -- Older installations may have created the timeline without a channel field.
 alter table public.demande_events add column if not exists channel text not null default 'Internal';
 alter table public.demande_events add column if not exists metadata jsonb;
--- Replace the legacy event-kind check with the workflow's event vocabulary.
+-- Event kinds and channels remain extensible across workflow revisions.
 alter table public.demande_events drop constraint if exists demande_events_kind_check;
-alter table public.demande_events add constraint demande_events_kind_check check (kind in (
-  'created', 'creation', 'note', 'update', 'status_changed', 'status_change', 'resolved',
-  'stage_changed', 'responsible_changed', 'owner_changed', 'due_date_changed', 'field_changed'
-));
+alter table public.demande_events drop constraint if exists demande_events_channel_check;
 
 do $$ begin
   if not exists (select 1 from pg_constraint where conname='demandes_initial_channel_check') then

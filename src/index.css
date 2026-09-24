@@ -72,7 +72,7 @@ button { cursor:pointer; }
 .panel-contact { display:flex;gap:14px;margin-top:9px;color:var(--ink-secondary);font-size:10px; }
 .panel-body { flex:1;min-height:0;overflow:auto;padding:14px 18px 18px;display:flex;flex-direction:column;gap:17px; }
 .panel-section { display:flex;flex-direction:column;gap:8px; }.panel-section-title { margin:0;color:var(--ink-muted);font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase; }
-.detail-fields { display:grid;grid-template-columns:1fr 1fr;gap:8px 10px; }.detail-fields>label { min-width:0;display:flex;flex-direction:column;gap:4px;color:var(--ink-muted);font-size:10px; }.detail-fields .field-wide,.detail-fields .due-field { grid-column:1/-1; }
+.detail-fields { display:grid;grid-template-columns:1fr 1fr;gap:8px 10px; }.detail-fields>label,.detail-fields>.detail-field { min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:4px;color:var(--ink-muted);font-size:10px; }.detail-fields .field-wide,.detail-fields .due-field { grid-column:1/-1; }
 .panel-select,.panel-datetime-input { width:100%;min-height:30px;padding:5px 7px;border:1px solid var(--border-default);border-radius:5px;background:#fff;color:var(--ink-primary);font-size:11px;outline:0; }
 .panel-select:focus,.panel-datetime-input:focus { border-color:#98a6ee; }
 .ownership-summary { display:flex;flex-wrap:wrap;align-items:center;gap:4px;color:var(--ink-muted);font-size:9px; }.ownership-summary b { color:var(--ink-secondary);font-weight:600; }.ownership-summary i { padding:0 2px;color:#a1a6af;font-style:normal; }

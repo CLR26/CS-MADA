@@ -63,6 +63,13 @@ export default function App() {
     setAgents(roster.data || [])
   }, [session])
 
+  const loadAgents = useCallback(async () => {
+    if (!session) return
+    const { data, error } = await supabase.from('agents').select('*').order('name')
+    if (error) { setLoadError(error.message); return }
+    setAgents(data || [])
+  }, [session])
+
   useEffect(() => { loadWorkspace() }, [loadWorkspace])
 
   useEffect(() => {
@@ -72,21 +79,32 @@ export default function App() {
         if (payload.eventType === 'DELETE') setDemandes(rows => rows.filter(row => row.id !== payload.old.id))
         else setDemandes(rows => payload.eventType === 'INSERT'
           ? (rows.some(row => row.id === payload.new.id) ? rows : [payload.new, ...rows])
-          : rows.map(row => row.id === payload.new.id ? payload.new : row))
+          : (rows.some(row => row.id === payload.new.id)
+            ? rows.map(row => row.id === payload.new.id ? payload.new : row)
+            : [payload.new, ...rows]))
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'demande_events' }, payload => {
-        if (payload.eventType === 'INSERT') setEvents(rows => rows.some(row => row.id === payload.new.id) ? rows : [...rows, payload.new])
+    if (selectedId) {
+      channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'demande_events', filter: `demande_id=eq.${selectedId}` }, payload => {
+        setEvents(rows => rows.some(row => row.id === payload.new.id)
+          ? rows
+          : [...rows, payload.new].sort((a, b) => a.created_at.localeCompare(b.created_at)))
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'agents' }, loadWorkspace)
+    }
+    channel.on('postgres_changes', { event: '*', schema: 'public', table: 'agents' }, loadAgents)
       .subscribe()
     return () => supabase.removeChannel(channel)
-  }, [session, loadWorkspace])
+  }, [session, selectedId, loadWorkspace, loadAgents])
 
   useEffect(() => {
     let ignore = false
-    if (!selectedId) { setEvents([]); return }
+    setEvents([])
+    if (!selectedId) return
     supabase.from('demande_events').select('*').eq('demande_id', selectedId).order('created_at', { ascending: true })
-      .then(({ data, error }) => { if (!ignore && !error) setEvents(data || []) })
+      .then(({ data, error }) => {
+        if (ignore || error) return
+        setEvents(current => [...new Map([...(data || []), ...current.filter(event => event.demande_id === selectedId)].map(event => [event.id, event])).values()]
+          .sort((a, b) => a.created_at.localeCompare(b.created_at)))
+      })
     return () => { ignore = true }
   }, [selectedId])
 
@@ -104,8 +122,10 @@ export default function App() {
       metadata,
     }).select().single()
     if (error) throw error
-    setEvents(rows => rows.some(row => row.id === data.id) ? rows : [...rows, data])
-  }, [currentAgent, session])
+    if (selectedId === data.demande_id) {
+      setEvents(rows => rows.some(row => row.id === data.id) ? rows : [...rows, data].sort((a, b) => a.created_at.localeCompare(b.created_at)))
+    }
+  }, [currentAgent, session, selectedId])
 
   const createQuery = useCallback(async payload => {
     const initial_channel = payload.initial_channel
@@ -116,10 +136,16 @@ export default function App() {
       responsible_id: payload.responsible_id || currentAgent?.id || null,
     }).select().single()
     if (error) throw error
-    await createEvent(data.id, { kind: 'created', channel: initial_channel, content: 'Demande créée à partir du contact client.' })
+    let timelineSaved = true
+    try {
+      await createEvent(data.id, { kind: 'created', channel: initial_channel, content: 'Demande créée à partir du contact client.' })
+    } catch (eventError) {
+      timelineSaved = false
+      notify(`Demande créée, mais l’événement initial n’a pas été enregistré : ${eventError.message}`, 'error')
+    }
     setSelectedId(data.id)
     setShowNewModal(false)
-    notify('Demande créée')
+    if (timelineSaved) notify('Demande créée')
   }, [currentAgent, createEvent, notify])
 
   const updateQuery = useCallback(async (id, changes) => {
@@ -130,7 +156,7 @@ export default function App() {
     if (diff.status === 'Resolved') diff.resolved_at = new Date().toISOString()
     else if (diff.status) diff.resolved_at = null
     const { data, error } = await supabase.from('demandes').update(diff).eq('id', id).select().single()
-    if (error) { notify(error.message, 'error'); throw error }
+    if (error) { notify(error.message, 'error'); return null }
     setDemandes(rows => rows.map(row => row.id === id ? data : row))
     for (const [key, value] of Object.entries(diff)) {
       if (key === 'resolved_at') continue
