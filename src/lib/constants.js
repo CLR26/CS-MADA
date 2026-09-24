@@ -1,7 +1,5 @@
 /**
- * Valeurs métier normalisées, partagées entre les formulaires et les filtres.
- * Toute nouvelle valeur doit être ajoutée ici uniquement (source unique de vérité)
- * pour garantir des filtres fiables dans le Dashboard.
+ * Normalized constants for Customer Operations Workspace
  */
 
-export const DEPARTMENTS = ['FinanceOps', 'GroundOps', 'Customer Support']
+export const STATUSES = ['Open', 'In progress', 'Waiting', 'Escalated', 'Resolved']
