@@ -21,7 +21,7 @@ export default function Login() {
 
   return (
     <div className="login-shell">
-      <div className="login-card animate-slide-up">
+      <div className="login-card">
         <div className="login-card__logo-area">
           <div className="topbar__logo">
             <IconInbox size={22} />

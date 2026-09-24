@@ -14,7 +14,7 @@ export default function Toast({ message, type = 'success', onClose }) {
 
   return (
     <div
-      className={`ui-toast ui-toast--${type} animate-slide-up`}
+      className={`ui-toast ui-toast--${type}`}
       role="status"
       aria-live="polite"
     >

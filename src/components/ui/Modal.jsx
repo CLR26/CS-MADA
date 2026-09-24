@@ -51,7 +51,7 @@ export default function Modal({
     <div className="ui-modal-overlay animate-fade-in" onClick={onClose}>
       <div
         ref={modalRef}
-        className="ui-modal animate-slide-up"
+        className="ui-modal"
         style={{ maxWidth }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"

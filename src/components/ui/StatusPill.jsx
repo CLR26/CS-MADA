@@ -1,62 +1,31 @@
-import { useState, useRef, useEffect } from 'react'
 import { STATUSES } from '../../lib/constants'
 
-export default function StatusPill({ status = 'Open', onChange, editable = false }) {
-  const [open, setOpen] = useState(false)
-  const menuRef = useRef(null)
+const slug = status => status.toLowerCase().replace(/\s+/g, '-')
 
+export default function StatusPill({ status = 'Open', onChange, editable = false, disabled = false }) {
   const normalized = STATUSES.includes(status) ? status : 'Open'
-  const statusSlug = normalized.toLowerCase().replace(/\s+/g, '-')
+  const className = `status-pill status-pill--${slug(normalized)}${editable ? ' status-pill--clickable' : ''}`
 
-  useEffect(() => {
-    if (!open) return
-    function handleClickOutside(e) {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [open])
-
-  function handleSelect(newStatus, e) {
-    e.stopPropagation()
-    setOpen(false)
-    if (newStatus !== status && onChange) {
-      onChange(newStatus)
-    }
+  if (!editable) {
+    return <span className={className} aria-label={`Statut : ${normalized}`}>
+      <span className="status-pill__text">{normalized}</span>
+    </span>
   }
 
-  return (
-    <div className="status-pill-container" ref={menuRef}>
-      <button
-        type="button"
-        className={`status-pill status-pill--${statusSlug} ${editable ? 'status-pill--clickable' : ''}`}
-        onClick={editable ? (e) => { e.stopPropagation(); setOpen(!open) } : undefined}
-        title={editable ? 'Click to change status' : status}
-      >
-        <span className="status-pill__text">{normalized}</span>
-      </button>
-
-      {open && (
-        <div className="status-menu" onClick={e => e.stopPropagation()}>
-          {STATUSES.map(s => {
-            const sSlug = s.toLowerCase().replace(/\s+/g, '-')
-            const isSelected = s === normalized
-            return (
-              <button
-                key={s}
-                type="button"
-                className={`status-menu__item status-menu__item--${sSlug} ${isSelected ? 'is-selected' : ''}`}
-                onClick={(e) => handleSelect(s, e)}
-              >
-                <span>{s}</span>
-                {isSelected && <span className="status-menu__check">✓</span>}
-              </button>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
+  // A native select keeps the menu inside the browser's own layer, so it cannot
+  // be clipped by the queue, a scroll container, or the detail drawer.
+  return <span className="status-pill-container">
+    <span className={className} aria-hidden="true"><span className="status-pill__text">{normalized}</span><span className="status-pill__chevron">⌄</span></span>
+    <select
+      className="status-pill__select"
+      aria-label="Modifier le statut"
+      value={normalized}
+      disabled={disabled}
+      onChange={event => onChange?.(event.target.value)}
+      onClick={event => event.stopPropagation()}
+      onKeyDown={event => event.stopPropagation()}
+    >
+      {STATUSES.map(value => <option key={value} value={value}>{value}</option>)}
+    </select>
+  </span>
 }

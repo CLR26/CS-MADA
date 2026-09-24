@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Modal from './ui/Modal'
+import { fromLocalDateTimeInput } from '../lib/dates'
 
 export default function NewQueryModal({ agents = [], onCreate, onClose }) {
   const [form, setForm] = useState({ customer_name: '', phone: '', email: '', tracking_number: '', query: '', initial_channel: 'WhatsApp', customer_feedback_due_at: '', next_action: '' })
@@ -10,7 +11,7 @@ export default function NewQueryModal({ agents = [], onCreate, onClose }) {
     event.preventDefault(); setError('')
     if (!form.customer_name.trim() || !form.query.trim()) { setError('Le nom du client et le sujet sont obligatoires.'); return }
     setSaving(true)
-    try { await onCreate({ ...form, customer_name: form.customer_name.trim(), query: form.query.trim(), phone: form.phone.trim() || null, email: form.email.trim() || null, tracking_number: form.tracking_number.trim().toUpperCase() || null, customer_feedback_due_at: form.customer_feedback_due_at ? new Date(form.customer_feedback_due_at).toISOString() : null, next_action: form.next_action.trim() || null }) }
+    try { await onCreate({ ...form, customer_name: form.customer_name.trim(), query: form.query.trim(), phone: form.phone.trim() || null, email: form.email.trim() || null, tracking_number: form.tracking_number.trim().toUpperCase() || null, customer_feedback_due_at: fromLocalDateTimeInput(form.customer_feedback_due_at), next_action: form.next_action.trim() || null }) }
     catch (reason) { setError(reason.message || 'Création impossible. Réessayez.'); setSaving(false) }
   }
   return <Modal isOpen onClose={onClose} title="Nouvelle demande" maxWidth="520px" footer={<div className="new-query-footer"><button type="button" className="btn-cancel" onClick={onClose} disabled={saving}>Annuler</button><button type="submit" form="create-query" className="btn-submit" disabled={saving}>{saving ? 'Création…' : 'Créer la demande'}</button></div>}>
