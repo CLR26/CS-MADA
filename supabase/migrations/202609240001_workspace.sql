@@ -110,6 +110,8 @@ create table if not exists public.demande_events (
   created_at timestamptz not null default now()
 );
 alter table public.demande_events add column if not exists author_id uuid references public.agents(id) on delete set null;
+-- Older installations may have created the timeline without a channel field.
+alter table public.demande_events add column if not exists channel text not null default 'Internal';
 alter table public.demande_events add column if not exists metadata jsonb;
 
 do $$ begin
