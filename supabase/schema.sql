@@ -57,6 +57,7 @@ drop function if exists public.set_last_update_at();
 do $$ begin
   if exists (select 1 from information_schema.columns where table_schema='public' and table_name='demandes' and column_name='channel') then
     execute 'update public.demandes set initial_channel = case when channel = ''E-mail'' then ''E-mail'' else ''WhatsApp'' end where initial_channel is null or initial_channel = ''WhatsApp''';
+    execute 'update public.demandes set current_stage = ''CS E-mail'' where channel = ''E-mail'' and current_stage = ''CS WhatsApp''';
   end if;
   if exists (select 1 from information_schema.columns where table_schema='public' and table_name='demandes' and column_name='follow_up_at') then
     execute 'update public.demandes set customer_feedback_due_at = follow_up_at where customer_feedback_due_at is null';
@@ -90,7 +91,6 @@ do $$ begin
 end $$;
 
 update public.demandes set customer_name = coalesce(customer_name, 'Client inconnu'), query = coalesce(query, 'Demande historique') where customer_name is null or query is null;
-update public.demandes set current_stage = 'CS E-mail' where initial_channel = 'E-mail' and current_stage = 'CS WhatsApp';
 update public.demandes set initial_channel = coalesce(initial_channel, 'WhatsApp'), current_stage = coalesce(current_stage, case when initial_channel = 'E-mail' then 'CS E-mail' else 'CS WhatsApp' end), status = coalesce(status, 'Open'), updated_at = coalesce(updated_at, created_at, now());
 alter table public.demandes alter column customer_name set not null;
 alter table public.demandes alter column query set not null;
@@ -111,7 +111,7 @@ select seed.name, seed.role, seed.primary_channel from (values
   ('Agent 1', 'CS', 'WhatsApp'), ('Agent 2', 'CS', 'E-mail'),
   ('Agent 3', 'Opérations', null), ('Agent 4', 'Opérations', null)
 ) as seed(name, role, primary_channel)
-where not exists (select 1 from public.agents a where a.name = seed.name);
+where not exists (select 1 from public.agents);
 
 create table if not exists public.demande_events (
   id uuid primary key default gen_random_uuid(),
