@@ -72,6 +72,17 @@ do $$ begin
   if exists (select 1 from information_schema.columns where table_schema='public' and table_name='demandes' and column_name='created_by') then
     execute 'update public.demandes d set owner_id = a.id, responsible_id = a.id from public.agents a where a.user_id = d.created_by and d.owner_id is null';
   end if;
+  if exists (select 1 from information_schema.columns where table_schema='public' and table_name='demandes' and column_name='waiting_on') then
+    execute $m$
+      update public.demandes set status = case
+        when resolved_at is not null then 'Resolved'
+        when waiting_on::text = 'departement' then 'Escalated'
+        when waiting_on::text = 'client' then 'Waiting'
+        when waiting_on::text = 'nous' then 'In progress'
+        else status end
+      where status is null or status = 'Open'
+    $m$;
+  end if;
 end $$;
 
 update public.demandes set customer_name = coalesce(customer_name, 'Client inconnu'), query = coalesce(query, 'Demande historique') where customer_name is null or query is null;
@@ -193,6 +204,7 @@ alter table public.demandes drop column if exists follow_up_at;
 alter table public.demandes drop column if exists last_update_at;
 alter table public.demandes drop column if exists created_by;
 alter table public.demandes drop column if exists created_by_name;
+alter table public.demandes drop column if exists waiting_on;
 alter table public.demande_events drop column if exists author;
 
 -- Realtime publication may not exist or may already include one of these tables.
