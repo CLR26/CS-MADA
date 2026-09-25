@@ -115,4 +115,13 @@ The live Supabase data, auth roster, deployed policies, and publication configur
 - Added transactional RPCs for Tier 1 escalation/return, Tier 2 external handoff/response/completion, customer updates, resolution, and reopening. Added panel actions, escalation history, typed lifecycle timeline events, and internal notifications for handoff/response ownership changes.
 - Built the Vite production bundle successfully.
 
-This remains a staged cutover. The current app still reads legacy case and generic timeline tables for its main queue; the new workflow actions depend on applying the lifecycle migration. Configurable routing administration, a complete named-queue navigation, full role-scoped access on legacy case tables, immutable event enforcement for privileged database owners, scheduled deadline notifications, deployment data reconciliation, and the requested automated workflow scenarios remain before production adoption. The migration has not been applied. Do not apply it until the live-schema/data/auth checks above are complete.
+## 14. Follow-up cutover work (26 September 2026)
+
+- The user confirmed that `202609250001_lifecycle_domain.sql` has been applied. This is user-reported and has not been independently queried against the production database.
+- The application now detects a second capability marker before enabling lifecycle actions. Until the new cutover migration exists, the app retains the legacy write path.
+- Added `202609260001_lifecycle_cutover.sql` with channel/carrier routing pools, validated create/update/note/acknowledge RPCs, Tier 2 transition handling, internal-agent RLS, restricted legacy case/event writes, and server-side due notifications (pg_cron when available, plus an authenticated internal RPC fallback).
+- Added clickable queues for My Work, New, CS-MADA, Waiting on Customer, MADA-OPS, Tier 1, External / SEZ-OPS, customer updates due, overdue, resolved, and closed. Updated case rows to show ownership, team, tier/external state, assignee, status, deadline, and activity.
+- Added `supabase/tests/lifecycle_scenarios.sql`, a rollback-only staging scenario script for scenarios A-J. It requires active authenticated CS-MADA and configured Tier 1 routing members; it has not been run because no Supabase connection or local `psql`/CLI is available here.
+- The Vite production build passed after these edits. The pending migration still needs to be applied in Supabase before the new write path activates. Production Cloudflare deployment status must be checked after pushing `main`.
+
+Remaining production checks: confirm real agent/auth/team memberships and seeded routing pools; assign an admin through a trusted database session before changing configuration in Supabase; apply the follow-up migration; run the staging scenario script; and verify Cloudflare and Supabase Realtime behavior. See [CS-MADA-CUTOVER.md](./CS-MADA-CUTOVER.md) for the rollout order.

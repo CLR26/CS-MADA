@@ -111,3 +111,9 @@ Create idempotent internal notifications for new assignment, Tier 1 assignment/a
 - Mark synthesized historical escalations as legacy/inferred and leave unsupported values unknown. Do not fabricate category, carrier, Tier 2 activity, response, or deadline.
 - Add and backfill in parallel, reconcile counts/IDs/history, verify auth mappings and new RLS, then switch application reads/writes. Delay legacy column/table removal until rollback is no longer needed.
 - Inspect production schema, data, auth roster, RLS, triggers, and Realtime publication before applying DDL; repository SQL alone is not a production snapshot.
+
+## Implementation update · 26 September 2026
+
+The additive lifecycle domain migration `202609250001_lifecycle_domain.sql` is reported by the user as applied. The follow-up `202609260001_lifecycle_cutover.sql` moves case creation, case edits, and internal notes to validated RPCs, adds rule-based Tier 1 suggestions and acknowledgement, completes the Tier 1 → Tier 2 transition by closing the Tier 1 work item, restricts broad case/agent write policies, and schedules/facilitates server-side customer-deadline notifications. The application activates these RPCs only when the follow-up migration's routing pool table is visible. See [CS-MADA-CUTOVER.md](./CS-MADA-CUTOVER.md) for verification and rollback notes.
+
+The remaining manual checks are live roster/auth alignment, initial admin assignment, actual migration application, execution of the rollback-only A-J scenario script in staging, and production deployment/realtime verification. The app currently keeps the existing tables as the case source of truth; no historical data is deleted or moved.

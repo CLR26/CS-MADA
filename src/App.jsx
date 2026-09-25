@@ -30,11 +30,15 @@ export default function App() {
   const [categories, setCategories] = useState([])
   const [carriers, setCarriers] = useState([])
   const [lifecycleReady, setLifecycleReady] = useState(false)
+  const [teamIds, setTeamIds] = useState({})
   const [events, setEvents] = useState([])
   const [escalations, setEscalations] = useState([])
+  const [externalStatuses, setExternalStatuses] = useState({})
   const [operationsAgents, setOperationsAgents] = useState([])
+  const [csAgents, setCsAgents] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [statusFilter, setStatusFilter] = useState('active')
+  const [queueFilter, setQueueFilter] = useState('all')
   const [stageFilter, setStageFilter] = useState('all')
   const [responsibleFilter, setResponsibleFilter] = useState('all')
   const [ownerFilter, setOwnerFilter] = useState('all')
@@ -126,12 +130,14 @@ export default function App() {
     if (!session) return
     setLoading(true)
     try {
-      const [requests, roster, categoryRows, carrierRows, memberships] = await Promise.all([
+      const [requests, roster, categoryRows, carrierRows, memberships, cutover, externalRows] = await Promise.all([
         supabase.from('demandes').select('*').order('updated_at', { ascending: false }),
         supabase.from('agents').select('*').order('name'),
         supabase.from('case_categories').select('*').eq('active', true).order('sort_order'),
         supabase.from('carriers').select('*').eq('active', true).order('sort_order'),
-        supabase.from('team_memberships').select('agent_id, teams!inner(key)').eq('active', true).eq('teams.key', 'MADA-OPS'),
+        supabase.from('team_memberships').select('agent_id, teams!inner(key,id)').eq('active', true),
+        supabase.from('routing_rule_assignees').select('routing_rule_id').limit(1),
+        supabase.from('case_escalations').select('case_id,status,due_at,resolved_at,opened_at').eq('tier', 2).order('opened_at'),
       ])
       if (requests.error || roster.error) { setLoadError(supabaseMessage(requests.error || roster.error, 'charger les demandes')); return }
       setLoadError('')
@@ -139,9 +145,14 @@ export default function App() {
       setAgents(roster.data || [])
       setCategories(categoryRows.error ? [] : categoryRows.data || [])
       setCarriers(carrierRows.error ? [] : carrierRows.data || [])
-      setLifecycleReady(!categoryRows.error && !carrierRows.error && !memberships.error)
-      const opsIds = new Set((memberships.error ? [] : memberships.data || []).map(item => item.agent_id))
+      setLifecycleReady(!categoryRows.error && !carrierRows.error && !memberships.error && !cutover.error)
+      const membershipRows = memberships.error ? [] : memberships.data || []
+      setTeamIds(Object.fromEntries(membershipRows.map(item => [item.teams.key, item.teams.id])))
+      const opsIds = new Set(membershipRows.filter(item => item.teams.key === 'MADA-OPS').map(item => item.agent_id))
+      const csIds = new Set(membershipRows.filter(item => item.teams.key === 'CS-MADA').map(item => item.agent_id))
       setOperationsAgents((roster.data || []).filter(agent => opsIds.has(agent.id) && agent.active))
+      setCsAgents((roster.data || []).filter(agent => csIds.has(agent.id) && agent.active))
+      setExternalStatuses((externalRows.error ? [] : externalRows.data || []).reduce((all, row) => { all[row.case_id] = row; return all }, {}))
     } catch (error) {
       setLoadError(supabaseMessage(error, 'charger les demandes'))
     } finally {
@@ -191,6 +202,10 @@ export default function App() {
         if (payload.eventType === 'DELETE') setDemandes(rows => rows.filter(row => row.id !== payload.old.id))
         else setDemandes(rows => mergeRequest(rows, payload.new))
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'case_escalations' }, payload => {
+        const item = payload.new
+        if (item?.tier === 2) setExternalStatuses(rows => ({ ...rows, [item.case_id]: item }))
+      })
     if (selectedId) {
       channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'demande_events', filter: `demande_id=eq.${selectedId}` }, payload => {
         setEvents(rows => rows.some(row => row.id === payload.new.id)
@@ -201,7 +216,7 @@ export default function App() {
         const item = payload.new
         const mapped = { id: item.id, demande_id: item.case_id, kind: item.event_type, content: item.message, author_name: item.actor_name, channel: 'System', created_at: item.occurred_at }
         setEvents(rows => rows.some(row => row.id === mapped.id) ? rows : [...rows, mapped].sort((a, b) => a.created_at.localeCompare(b.created_at)))
-        supabase.from('case_escalations').select('*').eq('case_id', selectedId).order('opened_at').then(({ data }) => { if (data) setEscalations(data) })
+        supabase.from('case_escalations').select('*').eq('case_id', selectedId).order('opened_at').then(({ data }) => { if (data) { setEscalations(data); setExternalStatuses(rows => ({ ...rows, [selectedId]: [...data].reverse().find(row => row.tier === 2) || null })) } })
       })
     }
     channel.on('postgres_changes', { event: '*', schema: 'public', table: 'agents' }, loadAgents)
@@ -246,7 +261,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (!currentAgent) return
+    if (!currentAgent || lifecycleReady) return
     for (const request of demandes) {
       if (request.status === 'Resolved' || !request.customer_feedback_due_at || ![request.responsible_id, request.owner_id].includes(currentAgent.id)) continue
       const due = new Date(request.customer_feedback_due_at)
@@ -262,7 +277,17 @@ export default function App() {
         : { title: 'Échéance imminente', body: `Feedback client attendu dans ${minutes} min`, priority: 'normal' }
       supabase.from('notifications').upsert({ recipient_id: currentAgent.id, request_id: request.id, type, ...values, deduplication_key: key }, { onConflict: 'recipient_id,deduplication_key', ignoreDuplicates: true }).select().maybeSingle().then(({ data }) => { if (data) announce(data) })
     }
-  }, [currentAgent, demandes, now, announce])
+  }, [currentAgent, demandes, now, announce, lifecycleReady])
+
+  useEffect(() => {
+    if (!currentAgent || !lifecycleReady) return
+    const refreshDueNotifications = () => supabase.rpc('lifecycle_notify_due_deadlines').then(({ error }) => {
+      if (error) setNotificationError(`Échéances indisponibles : ${error.message}`)
+    })
+    refreshDueNotifications()
+    const timer = setInterval(refreshDueNotifications, 5 * 60_000)
+    return () => clearInterval(timer)
+  }, [currentAgent, lifecycleReady])
 
   useEffect(() => {
     if (!currentAgent) return
@@ -310,7 +335,18 @@ export default function App() {
   const createQuery = useCallback(async payload => {
     const initial_channel = payload.initial_channel
     const { category_id, carrier_id, priority, ...legacyPayload } = payload
-    const intake = lifecycleReady ? payload : legacyPayload
+    if (lifecycleReady) {
+      const { data: caseId, error } = await supabase.rpc('lifecycle_create_case', { p_case: payload })
+      if (error) throw new Error(supabaseMessage(error, 'créer la demande'))
+      const { data, error: readError } = await supabase.from('demandes').select('*').eq('id', caseId).single()
+      if (readError) throw new Error(supabaseMessage(readError, 'charger la demande créée'))
+      setDemandes(rows => mergeRequest(rows, data))
+      setSelectedId(data.id)
+      setShowNewModal(false)
+      notify('Demande créée et routée')
+      return
+    }
+    const intake = legacyPayload
     let result
     try {
       result = await supabase.from('demandes').insert({
@@ -335,18 +371,6 @@ export default function App() {
     if (timelineSaved) notify('Demande créée')
   }, [currentAgent, createEvent, notify, lifecycleReady])
 
-  const deleteQuery = useCallback(async request => {
-    const reference = request.tracking_number || request.id.slice(0, 8)
-    if (!window.confirm(`Supprimer définitivement le dossier #${reference} (${request.customer_name}) et sa timeline ?`)) return false
-    const { error } = await supabase.from('demandes').delete().eq('id', request.id)
-    if (error) { notify(supabaseMessage(error, 'supprimer le dossier'), 'error'); return false }
-    setDemandes(rows => rows.filter(row => row.id !== request.id))
-    setEvents(rows => rows.filter(row => row.demande_id !== request.id))
-    setSelectedId(null)
-    notify(`Dossier #${reference} supprimé`)
-    return true
-  }, [notify])
-
   const updateQuery = useCallback(async (id, changes) => {
     if (savingIdsRef.current.has(id)) return null
     const before = demandes.find(d => d.id === id)
@@ -359,6 +383,27 @@ export default function App() {
     setSavingIds(current => new Set(current).add(id))
     try {
       let result
+      if (lifecycleReady) {
+        const lifecycleChanges = { ...diff }
+        delete lifecycleChanges.resolved_at
+        if ('owner_id' in lifecycleChanges) { lifecycleChanges.case_owner_id = lifecycleChanges.owner_id; delete lifecycleChanges.owner_id }
+        if ('responsible_id' in lifecycleChanges) { lifecycleChanges.current_assignee_id = lifecycleChanges.responsible_id; delete lifecycleChanges.responsible_id }
+        if ('status' in lifecycleChanges) {
+          const status = lifecycleChanges.status
+          const mapped = status === 'Resolved' ? 'Resolved' : status === 'Closed' ? 'Closed' : status === 'Waiting' ? 'Waiting on Customer' : 'In progress'
+          const { error } = await supabase.rpc('lifecycle_set_status', { p_case_id: id, p_status: mapped, p_summary: null })
+          if (error) { notify(supabaseMessage(error, 'changer le statut'), 'error'); return null }
+          delete lifecycleChanges.status
+        }
+        if (Object.keys(lifecycleChanges).length) {
+          const { error } = await supabase.rpc('lifecycle_update_case', { p_case_id: id, p_changes: lifecycleChanges })
+          if (error) { notify(supabaseMessage(error, 'enregistrer les modifications'), 'error'); return null }
+        }
+        const fresh = await supabase.from('demandes').select('*').eq('id', id).single()
+        if (fresh.error) { notify(supabaseMessage(fresh.error, 'recharger la demande'), 'error'); return null }
+        setDemandes(rows => mergeRequest(rows, fresh.data))
+        return fresh.data
+      }
       try { result = await supabase.from('demandes').update(diff).eq('id', id).select().single() }
       catch (error) { notify(supabaseMessage(error, 'enregistrer les modifications'), 'error'); return null }
       const { data, error } = result
@@ -377,12 +422,18 @@ export default function App() {
       savingIdsRef.current.delete(id)
       setSavingIds(current => { const next = new Set(current); next.delete(id); return next })
     }
-  }, [demandes, agents, createEvent, notify])
+  }, [demandes, agents, createEvent, notify, lifecycleReady])
 
   const addEvent = useCallback(async (id, content, channel) => {
+    if (lifecycleReady) {
+      const { error } = await supabase.rpc('lifecycle_add_internal_note', { p_case_id: id, p_content: content })
+      if (error) throw new Error(supabaseMessage(error, 'ajouter la note interne'))
+      notify('Note interne ajoutée')
+      return
+    }
     await createEvent(id, { kind: 'note', content, channel })
     notify('Activité ajoutée')
-  }, [createEvent, notify])
+  }, [createEvent, notify, lifecycleReady])
 
   const runWorkflow = useCallback(async (action, payload) => {
     const request = demandes.find(row => row.id === selectedId)
@@ -411,9 +462,14 @@ export default function App() {
     } else if (action === 'customerUpdate') {
       rpcName = 'lifecycle_customer_update'
       args = { p_case_id: request.id, p_channel: payload.channel, p_content: payload.content, p_next_update_at: payload.next_update_at }
+    } else if (action === 'ackTier1') {
+      const escalation = [...escalations].reverse().find(item => item.tier === 1 && !item.resolved_at)
+      if (!escalation) throw new Error('No open Tier 1 escalation exists.')
+      rpcName = 'lifecycle_ack_tier1'
+      args = { p_escalation_id: escalation.id }
     } else {
       rpcName = 'lifecycle_set_status'
-      args = { p_case_id: request.id, p_status: action === 'resolve' ? 'Resolved' : 'In progress', p_summary: action === 'resolve' ? payload.confirmation : payload.reason }
+      args = { p_case_id: request.id, p_status: action === 'resolve' ? 'Resolved' : action === 'close' ? 'Closed' : 'In progress', p_summary: action === 'resolve' ? payload.confirmation : payload.reason }
     }
     const { error } = await supabase.rpc(rpcName, args)
     if (error) throw new Error(error.message || 'Workflow action failed.')
@@ -430,10 +486,27 @@ export default function App() {
     notify('Workflow action recorded')
   }, [selectedId, demandes, escalations, notify])
 
+  const suggestTier1Assignee = useCallback(async caseId => {
+    const { data, error } = await supabase.rpc('lifecycle_suggest_tier1_assignee', { p_case_id: caseId })
+    if (error) { notify(supabaseMessage(error, 'charger le routage opérations'), 'error'); return null }
+    return data || null
+  }, [notify])
+
   const filterNow = staleOnly || dueFilter !== 'all' ? now : null
   const visible = useMemo(() => {
     const query = search.trim().toLocaleLowerCase()
     return demandes.filter(row => {
+      if (queueFilter === 'my' && row.current_assignee_id !== currentAgent?.id) return false
+      if (queueFilter === 'new' && (row.current_status || row.status) !== 'New') return false
+      if (queueFilter === 'waiting_customer' && row.current_status !== 'Waiting on Customer') return false
+      if (queueFilter === 'cs' && row.current_team_id !== teamIds['CS-MADA']) return false
+      if (queueFilter === 'ops' && row.current_team_id !== teamIds['MADA-OPS']) return false
+      if (queueFilter === 'tier1' && Number(row.current_escalation_tier) !== 1) return false
+      if (queueFilter === 'external' && (row.current_escalation_tier !== 2 || ['Resolved','Closed'].includes(row.current_status))) return false
+      if (queueFilter === 'due' && !['overdue','due_today'].includes(getRequestDueState(row, filterNow || now))) return false
+      if (queueFilter === 'overdue' && getRequestDueState(row, filterNow || now) !== 'overdue') return false
+      if (queueFilter === 'resolved' && (row.current_status || row.status) !== 'Resolved') return false
+      if (queueFilter === 'closed' && row.current_status !== 'Closed') return false
       if (statusFilter === 'active' && !ACTIVE_STATUSES.includes(row.status)) return false
       if (statusFilter !== 'all' && statusFilter !== 'active' && row.status !== statusFilter) return false
       if (stageFilter !== 'all' && row.current_stage !== stageFilter) return false
@@ -449,7 +522,7 @@ export default function App() {
     }).sort((a, b) => sortDue
       ? (a.customer_feedback_due_at || '9999').localeCompare(b.customer_feedback_due_at || '9999')
       : (b.updated_at || '').localeCompare(a.updated_at || ''))
-  }, [demandes, statusFilter, stageFilter, responsibleFilter, ownerFilter, categoryFilter, carrierFilter, categories, carriers, staleOnly, dueFilter, search, sortDue, filterNow])
+  }, [demandes, statusFilter, queueFilter, teamIds, currentAgent, stageFilter, responsibleFilter, ownerFilter, categoryFilter, carrierFilter, categories, carriers, staleOnly, dueFilter, search, sortDue, filterNow, now])
 
   const openRows = demandes.filter(d => ACTIVE_STATUSES.includes(d.status))
   const metrics = [
@@ -460,7 +533,20 @@ export default function App() {
     { key: 'stale', label: 'Sans activité · 2j+', count: openRows.filter(d => now.getTime() - new Date(d.updated_at).getTime() > 48 * 3600000).length, status: 'active', stale: true },
   ]
   const applyMetric = metric => {
-    setStatusFilter(metric.status || 'all'); setStageFilter(metric.stage || 'all'); setResponsibleFilter('all'); setOwnerFilter('all'); setDueFilter(metric.due || 'all'); setStaleOnly(Boolean(metric.stale))
+    setQueueFilter('all'); setStatusFilter(metric.status || 'all'); setStageFilter(metric.stage || 'all'); setResponsibleFilter('all'); setOwnerFilter('all'); setDueFilter(metric.due || 'all'); setStaleOnly(Boolean(metric.stale))
+  }
+  const queueCounts = {
+    my: demandes.filter(row => row.current_assignee_id === currentAgent?.id && !['Resolved','Closed'].includes(row.current_status)).length,
+    new: demandes.filter(row => row.current_status === 'New').length,
+    waiting_customer: demandes.filter(row => row.current_status === 'Waiting on Customer').length,
+    cs: demandes.filter(row => row.current_team_id === teamIds['CS-MADA'] && !['Resolved','Closed'].includes(row.current_status)).length,
+    ops: demandes.filter(row => row.current_team_id === teamIds['MADA-OPS'] && !['Resolved','Closed'].includes(row.current_status)).length,
+    tier1: demandes.filter(row => row.current_escalation_tier === 1 && !['Resolved','Closed'].includes(row.current_status)).length,
+    external: demandes.filter(row => row.current_escalation_tier === 2 && !['Resolved','Closed'].includes(row.current_status)).length,
+    due: demandes.filter(row => !['Resolved','Closed'].includes(row.current_status) && ['overdue','due_today'].includes(getRequestDueState(row, now))).length,
+    overdue: demandes.filter(row => !['Resolved','Closed'].includes(row.current_status) && getRequestDueState(row, now)==='overdue').length,
+    resolved: demandes.filter(row => row.current_status === 'Resolved').length,
+    closed: demandes.filter(row => row.current_status === 'Closed').length,
   }
 
   if (session === undefined) return <div className="app-loading">Chargement de l’espace…</div>
@@ -482,6 +568,9 @@ export default function App() {
         <div className="stage-summary">{STAGES.map(stage => <button key={stage} onClick={() => { setStageFilter(stage); setStatusFilter('active'); setDueFilter('all'); setResponsibleFilter('all'); setOwnerFilter('all'); setStaleOnly(false) }}><span>{stage}</span><b>{openRows.filter(d => d.current_stage === stage).length}</b></button>)}</div>
         <div className="agent-summary">{activeAgents.map(agent => <div className="agent-metrics" key={agent.id}><button title={`Filtrer les actions de ${agent.name}`} onClick={() => { setResponsibleFilter(v => v === agent.id ? 'all' : agent.id); setOwnerFilter('all'); setStageFilter('all'); setDueFilter('all'); setStatusFilter('active'); setStaleOnly(false) }}><span className="agent-avatar">{agent.name.slice(0, 1).toUpperCase()}</span><span>{agent.name}</span><b>{openRows.filter(d => d.responsible_id === agent.id).length}</b></button><button className="owner-count" title={`Dossiers portés par ${agent.name}`} onClick={() => { setOwnerFilter(v => v === agent.id ? 'all' : agent.id); setResponsibleFilter('all'); setStageFilter('all'); setDueFilter('all'); setStatusFilter('active'); setStaleOnly(false) }}>owner {openRows.filter(d => d.owner_id === agent.id).length}</button></div>)}</div>
       </section>
+      {lifecycleReady && <nav className="lifecycle-queues" aria-label="Lifecycle queues">{[
+        ['my','My work'],['new','New'],['cs','CS-MADA'],['waiting_customer','Waiting on Customer'],['ops','MADA-OPS'],['tier1','Tier 1'],['external','External · SEZ-OPS'],['due','Customer updates due'],['overdue','Overdue'],['resolved','Resolved'],['closed','Closed'],
+      ].map(([key,label]) => <button type="button" key={key} className={queueFilter===key?'is-selected':''} onClick={() => { setQueueFilter(queueFilter===key?'all':key); setStatusFilter('all'); setStageFilter('all'); setResponsibleFilter('all'); setOwnerFilter('all'); setDueFilter('all'); setStaleOnly(false) }}><span>{label}</span><b>{queueCounts[key]}</b></button>)}</nav>}
       <section className="queue-toolbar"><div><h1>Demandes</h1><span className="queue-count">{visible.length} dossier{visible.length === 1 ? '' : 's'}</span></div>
         <div className="queue-filters"><select aria-label="Filtrer par statut" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="all">Tous les statuts</option><option value="active">Demandes ouvertes</option>{STATUSES.map(s => <option key={s}>{s}</option>)}</select>
           <select aria-label="Filtrer par étape" value={stageFilter} onChange={e => setStageFilter(e.target.value)}><option value="all">Toutes les étapes</option>{STAGES.map(s => <option key={s}>{s}</option>)}</select>
@@ -494,8 +583,8 @@ export default function App() {
       </section>
       {loadError && <div className="workspace-error">{loadError} <button onClick={loadWorkspace}>Réessayer</button></div>}
       <section className={`workspace-split ${selected ? 'has-panel' : ''}`}>
-        <div className="workspace-main"><SpreadsheetGrid demandes={visible} selectedId={selectedId} onSelectQuery={setSelectedId} agents={agents} categories={categories} carriers={carriers} loading={loading} savingIds={savingIds} now={now} onStatusChange={updateQuery} /></div>
-        {selected && <DetailPanel key={selected.id} demande={{ ...selected, escalations }} events={events} agents={agents} operationsAgents={operationsAgents} categories={categories} carriers={carriers} lifecycleReady={lifecycleReady} now={now} saving={savingIds.has(selected.id)} onUpdate={updateQuery} onWorkflow={runWorkflow} onAddEvent={addEvent} onDelete={deleteQuery} onClose={() => setSelectedId(null)} />}
+        <div className="workspace-main"><SpreadsheetGrid demandes={visible} selectedId={selectedId} onSelectQuery={setSelectedId} agents={agents} categories={categories} carriers={carriers} teamIds={teamIds} externalStatuses={externalStatuses} loading={loading} savingIds={savingIds} now={now} onStatusChange={updateQuery} /></div>
+        {selected && <DetailPanel key={selected.id} demande={{ ...selected, escalations }} events={events} agents={agents} operationsAgents={operationsAgents} csAgents={csAgents} categories={categories} carriers={carriers} lifecycleReady={lifecycleReady} now={now} saving={savingIds.has(selected.id)} onUpdate={updateQuery} onWorkflow={runWorkflow} onSuggestTier1={suggestTier1Assignee} onAddEvent={addEvent} onClose={() => setSelectedId(null)} />}
       </section>
     </main>
     {showNewModal && <NewQueryModal agents={activeAgents} categories={categories} carriers={carriers} lifecycleReady={lifecycleReady} onCreate={createQuery} onClose={() => setShowNewModal(false)} />}

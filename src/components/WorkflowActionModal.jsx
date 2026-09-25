@@ -6,6 +6,7 @@ const headings = {
   tier1: 'Escalate to MADA-OPS', returnToCs: 'Return case to CS-MADA',
   tier2: 'External handoff to SEZ-OPS', externalResponse: 'Record SEZ-OPS response', tier2Return: 'Complete SEZ-OPS follow-up',
   customerUpdate: 'Log customer update', resolve: 'Resolve case', reopen: 'Reopen case',
+  ackTier1: 'Acknowledge Tier 1 escalation', close: 'Close case',
 }
 const defaults = {
   tier1: { reason: '', requested_action: '', handoff_note: '', assignee_id: '', due_at: '' },
@@ -15,14 +16,15 @@ const defaults = {
   tier2Return: { result: '' },
   customerUpdate: { channel: 'WhatsApp', content: '', next_update_at: '' },
   resolve: { confirmation: '' }, reopen: { reason: '' },
+  ackTier1: {}, close: { reason: '' },
 }
 
-export default function WorkflowActionModal({ action, agents = [], channel = 'WhatsApp', onSubmit, onClose }) {
-  const [form, setForm] = useState(() => ({ ...defaults[action], ...(action === 'customerUpdate' ? { channel } : {}) }))
+export default function WorkflowActionModal({ action, agents = [], channel = 'WhatsApp', suggestedAssigneeId = '', onSubmit, onClose }) {
+  const [form, setForm] = useState(() => ({ ...defaults[action], ...(action === 'customerUpdate' ? { channel } : {}), ...(action === 'tier1' && suggestedAssigneeId ? { assignee_id: suggestedAssigneeId } : {}) }))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const set = key => event => setForm(value => ({ ...value, [key]: event.target.value }))
-  const operations = agents.filter(agent => agent.active && /opération|ops/i.test(agent.role || ''))
+  const operations = agents.filter(agent => agent.active)
   const field = (key, label, { type = 'text', required = false, multiline = false, options } = {}) => (
     <label className="form-row" key={key}><span className="form-label">{label}{required ? ' *' : ''}</span>
       {options ? <select className="form-input" value={form[key]} onChange={set(key)} required={required}>{options.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select>
@@ -51,6 +53,8 @@ export default function WorkflowActionModal({ action, agents = [], channel = 'Wh
       {action === 'customerUpdate' && <>{field('channel', 'Customer channel', { options: [['WhatsApp', 'WhatsApp'], ['E-mail', 'Email']] })}{field('content', 'Message sent to customer', { required: true, multiline: true })}{field('next_update_at', 'Next customer update due', { type: 'datetime-local', required: true })}</>}
       {action === 'resolve' && <>{field('confirmation', 'Resolution summary', { required: true, multiline: true })}</>}
       {action === 'reopen' && <>{field('reason', 'Why is this case reopening?', { required: true, multiline: true })}</>}
+      {action === 'close' && <>{field('reason', 'Closure note', { required: true, multiline: true })}</>}
+      {action === 'ackTier1' && <p className="workflow-confirm-copy">This records that MADA-OPS has taken ownership of the Tier 1 action.</p>}
       {error && <div className="form-error" role="alert">{error}</div>}
     </form>
   </Modal>
