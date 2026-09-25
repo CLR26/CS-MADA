@@ -23,7 +23,7 @@ begin
   if selected is null then raise exception 'WhatsApp intake rule must have an active assignee'; end if;
 
   perform set_config('request.jwt.claim.sub',cs_user::text,true);
-  whatsapp_case:=public.lifecycle_create_case(jsonb_build_object('customer_name','Scenario A','initial_channel','WhatsApp','query','WhatsApp route test'));
+  whatsapp_case:=public.lifecycle_create_case(jsonb_build_object('customer_name','Scenario A','initial_channel','WhatsApp','query','WhatsApp route test','customer_feedback_due_at',now()+interval '4 hours'));
   if not exists(select 1 from public.demandes where id=whatsapp_case and case_owner_id=selected and current_assignee_id=selected and current_team_id=(select id from public.teams where key='CS-MADA')) then
     raise exception 'Scenario A failed: WhatsApp case was not routed to its configured CS owner';
   end if;
@@ -32,7 +32,7 @@ begin
   if route_id is null then raise exception 'Scenario setup requires an active Email intake rule'; end if;
   select public.lifecycle_pick_assignee(route_id,(select destination_team_id from public.routing_rules where id=route_id)) into selected;
   if selected is null then raise exception 'Email intake rule must have an active assignee'; end if;
-  email_case:=public.lifecycle_create_case(jsonb_build_object('customer_name','Scenario B','initial_channel','E-mail','query','Email route test'));
+  email_case:=public.lifecycle_create_case(jsonb_build_object('customer_name','Scenario B','initial_channel','E-mail','query','Email route test','customer_feedback_due_at',now()+interval '4 hours'));
   if not exists(select 1 from public.demandes where id=email_case and case_owner_id=selected and current_assignee_id=selected) then
     raise exception 'Scenario B failed: Email case was not routed to its configured CS owner';
   end if;
@@ -41,7 +41,7 @@ begin
   select r.id into route_id from public.routing_rules r where r.active and r.escalation_tier=1 and r.carrier_id=aramex_id order by r.priority limit 1;
   select public.lifecycle_pick_assignee(route_id,(select destination_team_id from public.routing_rules where id=route_id)) into ops_agent;
   if route_id is null or ops_agent is null then raise exception 'Scenario C setup requires an Aramex Tier 1 pool'; end if;
-  aramex_case:=public.lifecycle_create_case(jsonb_build_object('customer_name','Scenario C','initial_channel','WhatsApp','query','Aramex Tier 1 test','carrier_id',aramex_id));
+  aramex_case:=public.lifecycle_create_case(jsonb_build_object('customer_name','Scenario C','initial_channel','WhatsApp','query','Aramex Tier 1 test','carrier_id',aramex_id,'customer_feedback_due_at',now()+interval '4 hours'));
   owner_before:=(select case_owner_id from public.demandes where id=aramex_case);
   escalation_id:=public.lifecycle_escalate_tier1(aramex_case,'Scenario C reason','Check parcel','Internal handoff',ops_agent,now()+interval '2 hours');
   if not exists(select 1 from public.demandes where id=aramex_case and case_owner_id=owner_before and current_assignee_id=ops_agent and current_escalation_tier=1 and current_status='Waiting on Operations') then
@@ -64,14 +64,14 @@ begin
   select r.id into route_id from public.routing_rules r where r.active and r.escalation_tier=1 and r.carrier_id=speedaf_id order by r.priority limit 1;
   select public.lifecycle_pick_assignee(route_id,(select destination_team_id from public.routing_rules where id=route_id)) into ops_agent;
   if route_id is null or ops_agent is null then raise exception 'Scenario D setup requires a Speedaf Tier 1 pool'; end if;
-  speedaf_case:=public.lifecycle_create_case(jsonb_build_object('customer_name','Scenario D','initial_channel','E-mail','query','Speedaf Tier 1 test','carrier_id',speedaf_id));
+  speedaf_case:=public.lifecycle_create_case(jsonb_build_object('customer_name','Scenario D','initial_channel','E-mail','query','Speedaf Tier 1 test','carrier_id',speedaf_id,'customer_feedback_due_at',now()+interval '4 hours'));
   escalation_id:=public.lifecycle_escalate_tier1(speedaf_case,'Scenario D reason','Contact carrier','Speedaf handoff',ops_agent,now()+interval '2 hours');
   if not exists(select 1 from public.demandes where id=speedaf_case and current_assignee_id=ops_agent and current_team_id=(select id from public.teams where key='MADA-OPS')) then
     raise exception 'Scenario D failed: Speedaf Tier 1 did not route to its configured MADA-OPS pool';
   end if;
 
   -- Scenarios E to J use the Speedaf case and verify the external and customer follow-up path.
-  tier2_case:=public.lifecycle_create_case(jsonb_build_object('customer_name','Scenario F','initial_channel','WhatsApp','query','SEZ-OPS handoff test','carrier_id',aramex_id));
+  tier2_case:=public.lifecycle_create_case(jsonb_build_object('customer_name','Scenario F','initial_channel','WhatsApp','query','SEZ-OPS handoff test','carrier_id',aramex_id,'customer_feedback_due_at',now()+interval '4 hours'));
   select r.id into route_id from public.routing_rules r where r.active and r.escalation_tier=1 and r.carrier_id=aramex_id order by r.priority limit 1;
   select public.lifecycle_pick_assignee(route_id,(select destination_team_id from public.routing_rules where id=route_id)) into ops_agent;
   select user_id into ops_user from public.agents where id=ops_agent;

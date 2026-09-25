@@ -162,6 +162,7 @@ begin
   cat:=nullif(p_case->>'category_id','')::uuid;
   carrier:=nullif(p_case->>'carrier_id','')::uuid;
   due_at:=nullif(p_case->>'customer_feedback_due_at','')::timestamptz;
+  if due_at is null then raise exception 'Next customer update deadline is required'; end if;
   insert into public.demandes(customer_name,phone,email,tracking_number,initial_channel,current_stage,status,owner_id,responsible_id,
     customer_feedback_due_at,next_customer_update_at,next_action,query,category_id,carrier_id,priority,case_owner_id,current_team_id,current_assignee_id,current_status)
   values(trim(p_case->>'customer_name'),nullif(trim(p_case->>'phone'),''),nullif(trim(p_case->>'email'),''),nullif(trim(p_case->>'tracking_number'),''),v_channel,
@@ -189,10 +190,10 @@ begin
     select 1 from public.team_memberships m join public.teams t on t.id=m.team_id join public.agents a on a.id=m.agent_id
     where a.id=nullif(p_changes->>'case_owner_id','')::uuid and a.active and m.active and t.active and t.key='CS-MADA'
   ) then raise exception 'Case owner must be an active CS-MADA member'; end if;
-  if p_changes ? 'current_assignee_id' and p_changes->>'current_assignee_id' is not null and not exists(
+  if p_changes ? 'current_assignee_id' and (nullif(p_changes->>'current_assignee_id','') is null or not exists(
     select 1 from public.team_memberships m join public.teams t on t.id=m.team_id join public.agents a on a.id=m.agent_id
     where a.id=(p_changes->>'current_assignee_id')::uuid and a.active and m.active and t.active and t.id=d.current_team_id
-  ) then raise exception 'Assignee must be an active member of the current team'; end if;
+  )) then raise exception 'Assignee must be an active member of the current team'; end if;
   update public.demandes set
     category_id=case when p_changes ? 'category_id' then nullif(p_changes->>'category_id','')::uuid else category_id end,
     carrier_id=case when p_changes ? 'carrier_id' then nullif(p_changes->>'carrier_id','')::uuid else carrier_id end,
