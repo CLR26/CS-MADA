@@ -5,6 +5,7 @@ import SpreadsheetGrid from './components/SpreadsheetGrid'
 import DetailPanel from './components/DetailPanel'
 import NewQueryModal from './components/NewQueryModal'
 import NotificationCenter from './components/NotificationCenter'
+import WorkflowActionModal from './components/WorkflowActionModal'
 import { ACTIVE_STATUSES, STATUSES, STAGES } from './lib/constants'
 import { compareTimestamps, formatDateTime, getRequestDueState } from './lib/dates'
 import { supabaseMessage } from './lib/errors'
@@ -26,12 +27,19 @@ export default function App() {
   const [session, setSession] = useState(undefined)
   const [demandes, setDemandes] = useState([])
   const [agents, setAgents] = useState([])
+  const [categories, setCategories] = useState([])
+  const [carriers, setCarriers] = useState([])
+  const [lifecycleReady, setLifecycleReady] = useState(false)
   const [events, setEvents] = useState([])
+  const [escalations, setEscalations] = useState([])
+  const [operationsAgents, setOperationsAgents] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [statusFilter, setStatusFilter] = useState('active')
   const [stageFilter, setStageFilter] = useState('all')
   const [responsibleFilter, setResponsibleFilter] = useState('all')
   const [ownerFilter, setOwnerFilter] = useState('all')
+  const [categoryFilter, setCategoryFilter] = useState('all')
+  const [carrierFilter, setCarrierFilter] = useState('all')
   const [staleOnly, setStaleOnly] = useState(false)
   const [dueFilter, setDueFilter] = useState('all')
   const [search, setSearch] = useState('')
@@ -118,14 +126,22 @@ export default function App() {
     if (!session) return
     setLoading(true)
     try {
-      const [requests, roster] = await Promise.all([
+      const [requests, roster, categoryRows, carrierRows, memberships] = await Promise.all([
         supabase.from('demandes').select('*').order('updated_at', { ascending: false }),
         supabase.from('agents').select('*').order('name'),
+        supabase.from('case_categories').select('*').eq('active', true).order('sort_order'),
+        supabase.from('carriers').select('*').eq('active', true).order('sort_order'),
+        supabase.from('team_memberships').select('agent_id, teams!inner(key)').eq('active', true).eq('teams.key', 'MADA-OPS'),
       ])
       if (requests.error || roster.error) { setLoadError(supabaseMessage(requests.error || roster.error, 'charger les demandes')); return }
       setLoadError('')
       setDemandes(requests.data || [])
       setAgents(roster.data || [])
+      setCategories(categoryRows.error ? [] : categoryRows.data || [])
+      setCarriers(carrierRows.error ? [] : carrierRows.data || [])
+      setLifecycleReady(!categoryRows.error && !carrierRows.error && !memberships.error)
+      const opsIds = new Set((memberships.error ? [] : memberships.data || []).map(item => item.agent_id))
+      setOperationsAgents((roster.data || []).filter(agent => opsIds.has(agent.id) && agent.active))
     } catch (error) {
       setLoadError(supabaseMessage(error, 'charger les demandes'))
     } finally {
@@ -181,6 +197,12 @@ export default function App() {
           ? rows
           : [...rows, payload.new].sort((a, b) => a.created_at.localeCompare(b.created_at)))
       })
+      channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'case_events', filter: `case_id=eq.${selectedId}` }, payload => {
+        const item = payload.new
+        const mapped = { id: item.id, demande_id: item.case_id, kind: item.event_type, content: item.message, author_name: item.actor_name, channel: 'System', created_at: item.occurred_at }
+        setEvents(rows => rows.some(row => row.id === mapped.id) ? rows : [...rows, mapped].sort((a, b) => a.created_at.localeCompare(b.created_at)))
+        supabase.from('case_escalations').select('*').eq('case_id', selectedId).order('opened_at').then(({ data }) => { if (data) setEscalations(data) })
+      })
     }
     channel.on('postgres_changes', { event: '*', schema: 'public', table: 'agents' }, loadAgents)
       .subscribe((status, error) => {
@@ -194,12 +216,18 @@ export default function App() {
   useEffect(() => {
     let ignore = false
     setEvents([])
+    setEscalations([])
     if (!selectedId) return
-    supabase.from('demande_events').select('*').eq('demande_id', selectedId).order('created_at', { ascending: true })
-      .then(({ data, error }) => {
+    Promise.all([
+      supabase.from('demande_events').select('*').eq('demande_id', selectedId).order('created_at', { ascending: true }),
+      supabase.from('case_events').select('*').eq('case_id', selectedId).order('occurred_at', { ascending: true }),
+      supabase.from('case_escalations').select('*').eq('case_id', selectedId).order('opened_at', { ascending: true }),
+    ]).then(([legacy, lifecycle, escalationRows]) => {
         if (ignore) return
-        if (error) { notify(supabaseMessage(error, 'charger la timeline'), 'error'); return }
-        setEvents(current => [...new Map([...(data || []), ...current.filter(event => event.demande_id === selectedId)].map(event => [event.id, event])).values()]
+        if (legacy.error) { notify(supabaseMessage(legacy.error, 'charger la timeline'), 'error'); return }
+        const typedEvents = lifecycle.error ? [] : (lifecycle.data || []).map(item => ({ id: item.id, demande_id: item.case_id, kind: item.event_type, content: item.message, author_name: item.actor_name, channel: 'System', created_at: item.occurred_at }))
+        setEscalations(escalationRows.error ? [] : escalationRows.data || [])
+        setEvents(current => [...new Map([...(legacy.data || []), ...typedEvents, ...current.filter(event => event.demande_id === selectedId)].map(event => [event.id, event])).values()]
           .sort((a, b) => a.created_at.localeCompare(b.created_at)))
       })
       .catch(error => { if (!ignore) notify(supabaseMessage(error, 'charger la timeline'), 'error') })
@@ -281,10 +309,12 @@ export default function App() {
 
   const createQuery = useCallback(async payload => {
     const initial_channel = payload.initial_channel
+    const { category_id, carrier_id, priority, ...legacyPayload } = payload
+    const intake = lifecycleReady ? payload : legacyPayload
     let result
     try {
       result = await supabase.from('demandes').insert({
-        ...payload,
+        ...intake,
         current_stage: initial_channel === 'E-mail' ? 'CS E-mail' : 'CS WhatsApp',
         status: 'Open', owner_id: currentAgent?.id || null,
         responsible_id: payload.responsible_id || currentAgent?.id || null,
@@ -303,7 +333,7 @@ export default function App() {
     setSelectedId(data.id)
     setShowNewModal(false)
     if (timelineSaved) notify('Demande créée')
-  }, [currentAgent, createEvent, notify])
+  }, [currentAgent, createEvent, notify, lifecycleReady])
 
   const deleteQuery = useCallback(async request => {
     const reference = request.tracking_number || request.id.slice(0, 8)
@@ -354,6 +384,52 @@ export default function App() {
     notify('Activité ajoutée')
   }, [createEvent, notify])
 
+  const runWorkflow = useCallback(async (action, payload) => {
+    const request = demandes.find(row => row.id === selectedId)
+    if (!request) throw new Error('Case not found.')
+    let rpcName
+    let args
+    if (action === 'tier1') {
+      rpcName = 'lifecycle_escalate_tier1'
+      args = { p_case_id: request.id, p_reason: payload.reason, p_requested_action: payload.requested_action, p_handoff_note: payload.handoff_note || null, p_assignee_id: payload.assignee_id, p_due_at: payload.due_at }
+    } else if (action === 'returnToCs') {
+      rpcName = 'lifecycle_return_to_cs'
+      args = { p_case_id: request.id, p_response: payload.response, p_next_customer_update_at: payload.next_customer_update_at }
+    } else if (action === 'tier2') {
+      rpcName = 'lifecycle_escalate_tier2'
+      args = { p_case_id: request.id, p_reason: payload.reason, p_requested_action: payload.requested_action, p_information_sent: payload.information_sent || null, p_followup_owner_id: payload.followup_owner_id, p_due_at: payload.due_at, p_external_reference: payload.external_reference || null }
+    } else if (action === 'externalResponse') {
+      const escalation = [...escalations].reverse().find(item => item.tier === 2 && !item.resolved_at)
+      if (!escalation) throw new Error('No open SEZ-OPS handoff exists.')
+      rpcName = 'lifecycle_record_sez_response'
+      args = { p_escalation_id: escalation.id, p_received_at: payload.received_at, p_response: payload.response, p_instructions: payload.instructions || null, p_references: payload.references, p_next_action: payload.next_action }
+    } else if (action === 'tier2Return') {
+      const escalation = [...escalations].reverse().find(item => item.tier === 2 && !item.resolved_at)
+      if (!escalation) throw new Error('No open SEZ-OPS handoff exists.')
+      rpcName = 'lifecycle_complete_tier2'
+      args = { p_escalation_id: escalation.id, p_result: payload.result }
+    } else if (action === 'customerUpdate') {
+      rpcName = 'lifecycle_customer_update'
+      args = { p_case_id: request.id, p_channel: payload.channel, p_content: payload.content, p_next_update_at: payload.next_update_at }
+    } else {
+      rpcName = 'lifecycle_set_status'
+      args = { p_case_id: request.id, p_status: action === 'resolve' ? 'Resolved' : 'In progress', p_summary: action === 'resolve' ? payload.confirmation : payload.reason }
+    }
+    const { error } = await supabase.rpc(rpcName, args)
+    if (error) throw new Error(error.message || 'Workflow action failed.')
+    const [caseRows, legacyRows, lifecycleRows, escalationRows] = await Promise.all([
+      supabase.from('demandes').select('*').eq('id', request.id).single(),
+      supabase.from('demande_events').select('*').eq('demande_id', request.id).order('created_at'),
+      supabase.from('case_events').select('*').eq('case_id', request.id).order('occurred_at'),
+      supabase.from('case_escalations').select('*').eq('case_id', request.id).order('opened_at'),
+    ])
+    if (caseRows.data) setDemandes(rows => mergeRequest(rows, caseRows.data))
+    const typedEvents = (lifecycleRows.data || []).map(item => ({ id: item.id, demande_id: item.case_id, kind: item.event_type, content: item.message, author_name: item.actor_name, channel: 'System', created_at: item.occurred_at }))
+    setEvents([...(legacyRows.data || []), ...typedEvents].sort((a, b) => a.created_at.localeCompare(b.created_at)))
+    setEscalations(escalationRows.data || [])
+    notify('Workflow action recorded')
+  }, [selectedId, demandes, escalations, notify])
+
   const filterNow = staleOnly || dueFilter !== 'all' ? now : null
   const visible = useMemo(() => {
     const query = search.trim().toLocaleLowerCase()
@@ -363,14 +439,17 @@ export default function App() {
       if (stageFilter !== 'all' && row.current_stage !== stageFilter) return false
       if (responsibleFilter !== 'all' && row.responsible_id !== responsibleFilter) return false
       if (ownerFilter !== 'all' && row.owner_id !== ownerFilter) return false
+      if (categoryFilter !== 'all' && row.category_id !== categoryFilter) return false
+      if (carrierFilter !== 'all' && row.carrier_id !== carrierFilter) return false
       if (staleOnly && filterNow.getTime() - new Date(row.updated_at).getTime() <= 48 * 3600000) return false
       if (dueFilter !== 'all' && getRequestDueState(row, filterNow) !== dueFilter) return false
-      if (query && ![row.customer_name, row.phone, row.email, row.tracking_number, row.query].some(value => (value || '').toLocaleLowerCase().includes(query))) return false
+      if (query && ![row.customer_name, row.phone, row.email, row.tracking_number, row.query, row.case_reference,
+        categories.find(item => item.id === row.category_id)?.name, carriers.find(item => item.id === row.carrier_id)].some(value => (value || '').toLocaleLowerCase().includes(query))) return false
       return true
     }).sort((a, b) => sortDue
       ? (a.customer_feedback_due_at || '9999').localeCompare(b.customer_feedback_due_at || '9999')
       : (b.updated_at || '').localeCompare(a.updated_at || ''))
-  }, [demandes, statusFilter, stageFilter, responsibleFilter, ownerFilter, staleOnly, dueFilter, search, sortDue, filterNow])
+  }, [demandes, statusFilter, stageFilter, responsibleFilter, ownerFilter, categoryFilter, carrierFilter, categories, carriers, staleOnly, dueFilter, search, sortDue, filterNow])
 
   const openRows = demandes.filter(d => ACTIVE_STATUSES.includes(d.status))
   const metrics = [
@@ -406,6 +485,8 @@ export default function App() {
       <section className="queue-toolbar"><div><h1>Demandes</h1><span className="queue-count">{visible.length} dossier{visible.length === 1 ? '' : 's'}</span></div>
         <div className="queue-filters"><select aria-label="Filtrer par statut" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="all">Tous les statuts</option><option value="active">Demandes ouvertes</option>{STATUSES.map(s => <option key={s}>{s}</option>)}</select>
           <select aria-label="Filtrer par étape" value={stageFilter} onChange={e => setStageFilter(e.target.value)}><option value="all">Toutes les étapes</option>{STAGES.map(s => <option key={s}>{s}</option>)}</select>
+          {lifecycleReady && <select aria-label="Filtrer par catégorie" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}><option value="all">Toutes les catégories</option>{categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
+          {lifecycleReady && <select aria-label="Filtrer par transporteur" value={carrierFilter} onChange={e => setCarrierFilter(e.target.value)}><option value="all">Tous les transporteurs</option>{carriers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
           <select aria-label="Filtrer par responsable" value={responsibleFilter} onChange={e => setResponsibleFilter(e.target.value)}><option value="all">Tous les responsables</option>{activeAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
           <select aria-label="Filtrer par owner" value={ownerFilter} onChange={e => setOwnerFilter(e.target.value)}><option value="all">Tous les owners</option>{activeAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
           <select aria-label="Filtrer par échéance" value={dueFilter} onChange={e => setDueFilter(e.target.value)}><option value="all">Toutes les échéances</option><option value="overdue">En retard</option><option value="due_today">Aujourd’hui</option><option value="upcoming">À venir</option><option value="none">Sans échéance</option></select>
@@ -413,11 +494,11 @@ export default function App() {
       </section>
       {loadError && <div className="workspace-error">{loadError} <button onClick={loadWorkspace}>Réessayer</button></div>}
       <section className={`workspace-split ${selected ? 'has-panel' : ''}`}>
-        <div className="workspace-main"><SpreadsheetGrid demandes={visible} selectedId={selectedId} onSelectQuery={setSelectedId} agents={agents} loading={loading} savingIds={savingIds} now={now} onStatusChange={updateQuery} /></div>
-        {selected && <DetailPanel key={selected.id} demande={selected} events={events} agents={agents} now={now} saving={savingIds.has(selected.id)} onUpdate={updateQuery} onAddEvent={addEvent} onDelete={deleteQuery} onClose={() => setSelectedId(null)} />}
+        <div className="workspace-main"><SpreadsheetGrid demandes={visible} selectedId={selectedId} onSelectQuery={setSelectedId} agents={agents} categories={categories} carriers={carriers} loading={loading} savingIds={savingIds} now={now} onStatusChange={updateQuery} /></div>
+        {selected && <DetailPanel key={selected.id} demande={{ ...selected, escalations }} events={events} agents={agents} operationsAgents={operationsAgents} categories={categories} carriers={carriers} lifecycleReady={lifecycleReady} now={now} saving={savingIds.has(selected.id)} onUpdate={updateQuery} onWorkflow={runWorkflow} onAddEvent={addEvent} onDelete={deleteQuery} onClose={() => setSelectedId(null)} />}
       </section>
     </main>
-    {showNewModal && <NewQueryModal agents={activeAgents} onCreate={createQuery} onClose={() => setShowNewModal(false)} />}
+    {showNewModal && <NewQueryModal agents={activeAgents} categories={categories} carriers={carriers} lifecycleReady={lifecycleReady} onCreate={createQuery} onClose={() => setShowNewModal(false)} />}
     {showNotifications && <NotificationCenter notifications={notifications} requests={demandes} setupError={notificationError} onOpen={setSelectedId} onRead={markRead} onReadAll={async () => { const readAt = new Date().toISOString(); setNotifications(rows => rows.map(item => item.read_at ? item : { ...item, read_at: readAt })); if (currentAgent) await supabase.from('notifications').update({ read_at: readAt }).eq('recipient_id', currentAgent.id).is('read_at', null) }} onClose={() => setShowNotifications(false)} preferences={preferences} onPreferences={savePreferences} onEnableBrowser={enableBrowser} browserState={browserState} soundOn={soundOn} onSoundChange={setSoundOn} />}
     {toast && <div className="attention-toast"><div><b>{toast.message.split(' — ')[0]}</b><span>{toast.message.split(' — ').slice(1).join(' — ')}</span></div>{toast.requestId && <button onClick={() => { setSelectedId(toast.requestId); setToast(null) }}>Ouvrir la demande</button>}<button onClick={() => setToast(null)} aria-label="Fermer">×</button></div>}
   </div>

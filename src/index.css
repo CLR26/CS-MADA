@@ -74,6 +74,12 @@ button { cursor:pointer; }
 .due-indicator { display:inline-flex;align-items:center;gap:5px;color:#68717e;font-size:11px;white-space:nowrap; }
 .due-indicator--overdue { color:#b3373f;font-weight:700; }.due-indicator--due_today { color:#a76b0d;font-weight:600; }.due-indicator--upcoming { color:#5368c9; }
 .due-indicator--resolved { color:var(--ink-muted); }
+.priority-badge { display:inline-flex;align-items:center;padding:3px 6px;border-radius:4px;background:#f1f2f5;color:#596273;font-size:10px;font-weight:650;white-space:nowrap; }
+.priority-badge--high { background:#fff4e5;color:#a15c08; }.priority-badge--urgent { background:#fff0f0;color:#b3373f; }.priority-badge--low { color:#737b88; }
+.workflow-ownership { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding:9px;border:1px solid var(--border-light);border-radius:6px;background:#fafbfc; }.workflow-ownership span { min-width:0;display:flex;flex-direction:column;gap:3px; }.workflow-ownership small,.escalation-history small { color:var(--ink-muted);font-size:9px; }.workflow-ownership b { overflow:hidden;color:var(--ink-secondary);font-size:10px;text-overflow:ellipsis; }
+.workflow-actions { display:flex;flex-wrap:wrap;gap:6px; }.workflow-actions button { padding:7px 9px;border:1px solid #cfd5e2;border-radius:5px;background:#fff;color:#34415a;font-size:10px;font-weight:650; }.workflow-actions button:hover { border-color:#9ba8c6;background:#f7f8fb; }.workflow-actions .workflow-action-secondary { color:#596273;font-weight:550; }
+.workflow-unavailable { padding:9px 10px;border:1px solid #eadfb9;border-radius:6px;background:#fffbeb;color:#785919;font-size:10px;line-height:1.5; }
+.escalation-history { display:flex;flex-direction:column;gap:6px; }.escalation-history article { display:grid;grid-template-columns:1fr auto;gap:3px 8px;padding:7px 8px;border-left:2px solid #6479c7;background:#f8f9fc; }.escalation-history b,.escalation-history span { color:var(--ink-secondary);font-size:10px; }.escalation-history small { grid-column:1/-1; }
 .stage-badge { display:inline-block;padding:3px 6px;border-radius:4px;background:#f1f2f5;color:#505866;font-size:10.5px; }
 .mobile-cards { display:none; }.table-empty-cell { padding:52px 20px!important;text-align:center;color:var(--ink-muted)!important; }
 .detail-panel { flex:none;width:410px;min-width:380px;display:flex;flex-direction:column;border-left:1px solid var(--border-default);background:white; }

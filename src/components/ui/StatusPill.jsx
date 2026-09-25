@@ -3,8 +3,9 @@ import { STATUSES } from '../../lib/constants'
 const slug = status => status.toLowerCase().replace(/\s+/g, '-')
 
 export default function StatusPill({ status = 'Open', onChange, editable = false, disabled = false }) {
-  const normalized = STATUSES.includes(status) ? status : 'Open'
-  const className = `status-pill status-pill--${slug(normalized)}${editable ? ' status-pill--clickable' : ''}`
+  const normalized = status || 'Open'
+  const styleStatus = ({ New: 'Open', 'Waiting on Customer': 'Waiting', 'Waiting on Operations': 'Escalated', 'Waiting on External Operations': 'Escalated', Closed: 'Resolved' })[normalized] || (STATUSES.includes(normalized) ? normalized : 'Open')
+  const className = `status-pill status-pill--${slug(styleStatus)}${editable ? ' status-pill--clickable' : ''}`
 
   if (!editable) {
     return <span className={className} aria-label={`Statut : ${normalized}`}>
